@@ -1,0 +1,173 @@
+sample_characteristic:
+  random_max_visit: 10
+  random_min_visit: 5
+  random_max_interval: 2
+  random_min_interval: 1
+  uniform_visit: 100
+  uniform_interval: 0.1
+  t_0: 50
+  unit: "year"
+  distribution: "uniform"
+  gaussian_noise_std_coefficient: 0.25
+  personalized_turbulence_coefficient_1: 0.25
+  personalized_turbulence_coefficient_2: 0.25
+ad:
+  base_initial_value:
+    a:
+      mean: 36.03
+      std: 26.52
+    tau_p:
+      mean: 12.38
+      std: 14.47
+    tau_o:
+      mean: 66.70
+      std: 58.57
+    n:
+      mean: 0.26
+      std: 0.08
+    c:
+      mean: 3.68
+      std: 8.30
+  parameters:
+    lambda_a_beta:
+      mean: 0.1835
+      std: 0.0311
+    k_a_beta:
+      mean: 259.44
+      std: 13.21
+    lambda_tau:
+      mean: 0.15
+      std: 0.16
+    k_tau:
+      mean: 123.35
+      std: 81.63
+    lambda_tau_o:
+      mean: 1.15
+      std: 1.70
+    lambda_ntau_o:
+      mean: 0.000375
+      std: 0.000122
+    lambda_ntau_p:
+      mean: 0.0069
+      std: 0.00149
+    k_n:
+      mean: 1
+      std: 0.01
+    lambda_cn:
+      mean: 1.67
+      std: 2.40
+    lambda_ctau:
+      mean: 3.83
+      std: 8
+    k_c:
+      mean: 169.48
+      std: 63.35
+lmci:
+  base_initial_value:
+    a:
+      mean: 41.57
+      std: 24.23
+    tau_p:
+      mean: 4.21
+      std: 7.68
+    tau_o:
+      mean: 28.66
+      std: 33.13
+    n:
+      mean: 0.48
+      std: 0.26
+    c:
+      mean: 6.03
+      std: 6.56
+  parameters:
+    lambda_a_beta:
+      mean: 0.1612
+      std: 0.0503
+    k_a_beta:
+      mean: 264.99
+      std: 74.69
+    lambda_tau:
+      mean: 0.08
+      std: 0.12
+    k_tau:
+      mean: 131.66
+      std: 75.89
+    lambda_tau_o:
+      mean: 1.74
+      std: 2.08
+    lambda_ntau_o:
+      mean: 0.000424
+      std: 0.000103
+    lambda_ntau_p:
+      mean: 0.00737
+      std: 0.00107
+    k_n:
+      mean: 1.02
+      std: 0.05
+    lambda_cn:
+      mean: 1.26
+      std: 1.99
+    lambda_ctau:
+      mean: 1.93
+      std: 3.91
+    k_c:
+      mean: 129.4
+      std: 84.31
+cn:
+  base_initial_value:
+    a:
+      mean: 44.92
+      std: 24.54
+    tau_p:
+      mean: 3.69
+      std: 6.15
+    tau_o:
+      mean: 24.25
+      std: 26.98
+    n:
+      mean: 0.42
+      std: 0.10
+    c:
+      mean: 2.58
+      std: 2.60
+  parameters:
+    lambda_a_beta:
+      mean: 0.1682
+      std: 0.0552
+    k_a_beta:
+      mean: 276.21
+      std: 88.29
+    lambda_tau:
+      mean: 0.12
+      std: 0.17
+    k_tau:
+      mean: 126.53
+      std: 91.31
+    lambda_tau_o:
+      mean: 0.87
+      std: 0.66
+    lambda_ntau_o:
+      mean: 0.000441
+      std: 0.000089
+    lambda_ntau_p:
+      mean: 0.00724
+      std: 0.00173
+    k_n:
+      mean: 1.03
+      std: 0.07
+    lambda_cn:
+      mean: 3.16
+      std: 3.06
+    lambda_ctau:
+      mean: 2.48
+      std: 3.94
+    k_c:
+      mean: 59.89
+      std: 80.03
+missing_rate:
+  a: 0.15
+  tau_p: 0.15
+  tau_o: 0.15
+  n: 0.115
+  c: 0
+
