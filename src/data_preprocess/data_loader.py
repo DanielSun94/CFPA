@@ -2,6 +2,7 @@ import os
 import pickle
 import random
 import numpy as np
+from copy import deepcopy
 from torch.utils.data import Dataset, RandomSampler, DataLoader
 
 
@@ -99,10 +100,6 @@ class SingleVisitDataset(Dataset):
     def __getitem__(self, index):
         return self.single_sample_list[index]
 
-    @staticmethod
-    def collate(batch):
-        print('')
-
 
 class SequentialVisitDataset(Dataset):
     def __init__(self, dataset):
@@ -138,12 +135,29 @@ class SequentialVisitDataset(Dataset):
         return self.data_list[index], self.time_list[index]
 
 
-class SequentialDataloader(DataLoader):
-    def __init__(self, dataset, batch_size, sampler, minimum_observation, mask, only_predict_next=False):
+class SingleVisitDataloader(DataLoader):
+    def __init__(self, dataset, batch_size, sampler, mask):
+        assert batch_size > 1
+        self.mask = mask
+        super().__init__(dataset, batch_size=batch_size, sampler=sampler,
+                         collate_fn=self.collate_fn)
+
+    def collate_fn(self, batch):
+        data = np.array(batch, np.float64)
+        mask = np.array(data == self.mask, np.int64)
+        return {
+            'data': data,
+            'mask': mask
+        }
+
+
+class SequentialVisitDataloader(DataLoader):
+    def __init__(self, dataset, batch_size, sampler, minimum_observation, mask, reconstruct_input, predict_label):
         assert batch_size > 1
         self.real_batch_size = batch_size
         self.mask = mask
-        self.only_predict_next = only_predict_next
+        self.reconstruct_input = reconstruct_input
+        self.predict_label = predict_label
         self.minimum_observation = minimum_observation
         super().__init__(dataset, batch_size=len(dataset), sampler=sampler, collate_fn=self.collate_fn)
 
@@ -160,66 +174,158 @@ class SequentialDataloader(DataLoader):
         feature_list = [item[0] for item in batch_data]
         valid_length_list = [len(item) for item in time_list]
         # for the randint and slice character, the prediction idx need to minus one, while the observation does not
-        prediction_idx_list = [random.randint(min_obser_time, length - 1) for length in valid_length_list]
-        # 此处这么设计是为了能够让observation预测较远的结果，如果永远是预测下一次的话，模型很难做远期预测
-        if self.only_predict_next:
-            observation_idx_list = [pred_idx for pred_idx in prediction_idx_list]
-        else:
-            observation_idx_list = [random.randint(min_obser_time, pred_idx) for pred_idx in prediction_idx_list]
+        # 此处的min_obser_time从0起数
+        observation_idx_list = [random.randint(min_obser_time, length - 1) for length in valid_length_list]
 
         available_feature_list, available_time_list, predict_feature_list, predict_time_list = [], [], [], []
-        for sample_time_list, sample_feature_list, sample_obser_idx, sample_pred_idx in \
-                zip(time_list, feature_list, observation_idx_list, prediction_idx_list):
-            assert sample_obser_idx <= sample_pred_idx
-            predict_time_list.append(sample_time_list[sample_pred_idx])
-            predict_feature_list.append(sample_feature_list[sample_pred_idx])
+        for sample_time_list, sample_feature_list, sample_obser_idx in \
+                zip(time_list, feature_list, observation_idx_list):
+            predict_time_list.append(sample_time_list[sample_obser_idx:])
+            predict_feature_list.append(sample_feature_list[sample_obser_idx:])
             available_feature_list.append(sample_feature_list[:sample_obser_idx])
             available_time_list.append(sample_time_list[:sample_obser_idx])
         return predict_time_list, predict_feature_list, available_time_list, available_feature_list
 
-    def vectorize_nested_list(self, nested_list):
-        mask_num = self.mask
-        if isinstance(nested_list[0], int) or isinstance(nested_list[0], float):
-            feature = np.array(nested_list, dtype=np.float64)
-            mask = np.array(feature == mask_num, dtype=np.int64)
-            length = np.ones_like(nested_list, dtype=np.int64)
-            return feature, mask, length
-
-        assert isinstance(nested_list[0][0], list)
-        length = np.array([len(item) for item in nested_list], dtype=np.int64)
-        max_length = np.max(length)
-
-        new_nested_list = []
-        sample_dim = len(nested_list[0][0])
-        for sample_seq in nested_list:
-            new_sample_seq = []
-            for single_sample in sample_seq:
-                new_sample_seq.append(single_sample)
-            for i in range(max_length-len(sample_seq)):
-                new_sample_seq.append([-1 for _ in range(sample_dim)])
-            new_nested_list.append(new_sample_seq)
-
-        new_nested_data = np.array(new_nested_list, dtype=np.float64)
-        mask = np.array(new_nested_data == -1, dtype=np.int64)
-        new_nested_data = new_nested_data + mask
-        return new_nested_data, mask, length
-
     def collate_fn(self, data):
+        def feed_list(input_feature, input_time, output_feature, output_time, type_idx, input_features, input_times,
+                      input_masks, label_features, label_times, label_masks, types):
+            input_time_copy = deepcopy(input_time)
+            input_feature_copy = deepcopy(input_feature)
+            input_feature_mask = np.array(input_feature_copy) == -1
+            input_feature_copy = (1 - input_feature_mask) * input_feature_copy
+            output_time_copy = deepcopy(output_time)
+            output_feature_copy = deepcopy(output_feature)
+            output_feature_mask = np.array(output_feature_copy) == -1
+            output_feature_copy = (1 - output_feature_mask) * output_feature_copy
+            input_features.append(input_feature_copy.tolist())
+            input_times.append(input_time_copy)
+            input_masks.append(input_feature_mask.tolist())
+            label_features.append(output_feature_copy.tolist())
+            label_times.append(output_time_copy)
+            label_masks.append(output_feature_mask.tolist())
+            types.append(type_idx)
+
         predict_time_list, predict_feature_list, available_time_list, available_feature_list = \
             self.reorganize_batch_data(data)
-        pred_feature_data, pred_feature_mask, pred_feature_len = self.vectorize_nested_list(predict_feature_list)
-        pred_time_data, _, __ = self.vectorize_nested_list(predict_time_list)
-        avai_feature_data, avai_feature_mask, avai_feature_len = self.vectorize_nested_list(available_feature_list)
-        avai_time_data, avai_time_mask, avai_time_len = self.vectorize_nested_list(available_time_list)
-        return [avai_feature_data, avai_feature_mask, avai_feature_len], \
-               [avai_time_data, avai_time_mask, avai_time_len],\
-               [pred_feature_data, pred_feature_mask, pred_feature_len], pred_time_data
+        data = []
+        for pred_time, pred_feature, avail_time, avai_feature in \
+                zip(predict_time_list, predict_feature_list, available_time_list, available_feature_list):
+            data.append([pred_time, pred_feature, avail_time, avai_feature])
+        data = sorted(data, key=lambda x: len(x[3]), reverse=True)
+
+        input_feature_list, input_time_list, input_mask_list, label_feature_list, label_time_list, label_mask_list, \
+            type_list = [], [], [], [], [], [], []
+        for item in data:
+            pred_time, pred_feature, avail_time, avai_feature = item
+            if self.reconstruct_input:
+                for time, feature in zip(avail_time, avai_feature):
+                    feed_list(avai_feature, avail_time, feature, time, 1, input_feature_list, input_time_list,
+                              input_mask_list, label_feature_list, label_time_list, label_mask_list, type_list)
+            if self.predict_label:
+                for time, feature in zip(pred_time, pred_feature):
+                    feed_list(avai_feature, avail_time, feature, time, 0, input_feature_list, input_time_list,
+                              input_mask_list, label_feature_list, label_time_list, label_mask_list, type_list)
+
+        concat_input = []
+        for i in range(len(input_feature_list)):
+            concat_sample = []
+            for j in range(len(input_feature_list[i])):
+                visit_feature = input_feature_list[i][j]
+                visit_mask = input_mask_list[i][j]
+                visit_time = input_time_list[i][j]
+                visit_data = [visit_time]
+                visit_data.extend(visit_feature)
+                visit_data.extend(visit_mask)
+                concat_sample.append(visit_data)
+            concat_input.append(concat_sample)
+        return concat_input, input_feature_list, input_time_list, input_mask_list, label_feature_list,\
+            label_time_list, label_mask_list, type_list
+
+
+    # def vectorize_nested_list(self, nested_list):
+    #     mask_num = self.mask
+    #     # pred time
+    #     if isinstance(nested_list[0], int) or isinstance(nested_list[0], float):
+    #         feature = np.array(nested_list, dtype=np.float64)
+    #         mask = np.array(feature == mask_num, dtype=np.int64)
+    #         length = np.ones_like(nested_list, dtype=np.int64)
+    #         return feature, mask, length
+    #
+    #     # available time, pred feature
+    #     if isinstance(nested_list[0][0], int) or isinstance(nested_list[0][0], float):
+    #         new_nested_list = []
+    #         length = np.array([len(item) for item in nested_list], dtype=np.int64)
+    #         max_length = np.max(length)
+    #         for sample in nested_list:
+    #             new_sample = []
+    #             for item in sample:
+    #                 new_sample.append(item)
+    #             for i in range(max_length - len(new_sample)):
+    #                 new_sample.append(-1)
+    #             new_nested_list.append(new_sample)
+    #         feature = np.array(new_nested_list, dtype=np.float64)
+    #         mask = np.array(feature == mask_num, dtype=np.int64)
+    #         return feature, mask, length
+    #
+    #     assert isinstance(nested_list[0][0], list) and \
+    #            (isinstance(nested_list[0][0][0], float) or isinstance(nested_list[0][0][0], int))
+    #     length = np.array([len(item) for item in nested_list], dtype=np.int64)
+    #     max_length = np.max(length)
+    #
+    #     new_nested_list = []
+    #     sample_dim = len(nested_list[0][0])
+    #     for sample_seq in nested_list:
+    #         new_sample_seq = []
+    #         for single_sample in sample_seq:
+    #             new_sample_seq.append(single_sample)
+    #         for i in range(max_length-len(sample_seq)):
+    #             new_sample_seq.append([-1 for _ in range(sample_dim)])
+    #         new_nested_list.append(new_sample_seq)
+    #
+    #     new_nested_data = np.array(new_nested_list, dtype=np.float64)
+    #     mask = np.array(new_nested_data == mask_num, dtype=np.int64)
+    #     return new_nested_data, mask, length
+    #
+    # def collate_fn(self, data):
+    #     predict_time_list, predict_feature_list, available_time_list, available_feature_list = \
+    #         self.reorganize_batch_data(data)
+    #     pred_feature_data, pred_feature_mask, pred_feature_len = self.vectorize_nested_list(predict_feature_list)
+    #     pred_time_data, pred_time_mask, pred_time_len = self.vectorize_nested_list(predict_time_list)
+    #     avai_feature_data, avai_feature_mask, avai_feature_len = self.vectorize_nested_list(available_feature_list)
+    #     avai_time_data, avai_time_mask, avai_time_len = self.vectorize_nested_list(available_time_list)
+    #     return {
+    #         'input': {
+    #             'feature': {
+    #                 'data': avai_feature_data,
+    #                 'mask': avai_feature_mask,
+    #                 'length': avai_feature_len
+    #             },
+    #             'time': {
+    #                 'data': avai_time_data,
+    #                 'mask': avai_time_mask,
+    #                 'length': avai_time_len
+    #             }
+    #         },
+    #         'target': {
+    #             'time': {
+    #                 'data': pred_time_data,
+    #                 'mask': pred_time_mask,
+    #                 'length': pred_time_len
+    #             },
+    #             'feature': {
+    #                 'data': pred_feature_data,
+    #                 'mask': pred_feature_mask,
+    #                 'length': pred_feature_len
+    #             }
+    #         }
+    #     }
 
 
 def main():
     batch_size = 16
     min_obser = 2
-    mask_tag = 0
+    mask_tag = -1
+    reconstruct_input = True
     data_folder = os.path.abspath('../../resource/simulated_data/')
     false_data_path = os.path.join(data_folder, 'sim_data_hidden_False_group_lmci_personal_0_type_random.pkl')
     true_data_path = os.path.join(data_folder, 'sim_data_hidden_True_group_lmci_personal_0_type_random.pkl')
@@ -233,17 +339,18 @@ def main():
             dataset_2 = SingleVisitDataset(data_split)
             dataset_3 = SequentialVisitDataset(data_split)
             dataset_4 = SequentialVisitDataset(data_split)
-            for dataset in [dataset_3, dataset_4]:
-                sampler = RandomSampler(dataset)
-                dataloader = SequentialDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
-                                                  minimum_observation=min_obser)
-                for _ in dataloader:
-                    pass
             for dataset in [dataset_1, dataset_2]:
                 sampler = RandomSampler(dataset)
-                dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, collate_fn=dataset.collate)
+                dataloader = SingleVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag)
                 for _ in dataloader:
-                    pass
+                    print('')
+            for dataset in [dataset_3, dataset_4]:
+                sampler = RandomSampler(dataset)
+                dataloader = SequentialVisitDataloader(
+                    dataset, batch_size, sampler=sampler, mask=mask_tag, minimum_observation=min_obser,
+                    reconstruct_input=reconstruct_input)
+                for _ in dataloader:
+                    print('')
 
 
 if __name__ == "__main__":
