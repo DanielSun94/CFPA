@@ -326,7 +326,7 @@ def main():
     min_obser = 2
     mask_tag = -1
     reconstruct_input = True
-    data_folder = os.path.abspath('../../resource/simulated_data/')
+    data_folder = os.path.abspath('../resource/simulated_data/')
     false_data_path = os.path.join(data_folder, 'sim_data_hidden_False_group_lmci_personal_0_type_random.pkl')
     true_data_path = os.path.join(data_folder, 'sim_data_hidden_True_group_lmci_personal_0_type_random.pkl')
     hidden_false_data = pickle.load(open(false_data_path, 'rb'))

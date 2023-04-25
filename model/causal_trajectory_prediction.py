@@ -1,4 +1,5 @@
-import os
+if __name__ == '__main__':
+    print('unit test in verification')
 import pickle
 from torch import FloatTensor, chunk, stack, squeeze, cat, transpose, eye, ones, normal, no_grad, matmul, abs, sum, \
     trace, tanh, unsqueeze
@@ -6,7 +7,7 @@ from torch.linalg import matrix_exp
 from torch.nn.init import xavier_uniform_
 from torch.utils.data import RandomSampler
 from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, BCELoss
-from data_loader import SequentialVisitDataloader, SequentialVisitDataset
+from data_preprocess.data_loader import SequentialVisitDataloader, SequentialVisitDataset
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 from torchdiffeq import odeint_adjoint as odeint
 
@@ -88,6 +89,9 @@ class CausalTrajectoryPrediction(Module):
                 predict_value.append(odeint(self.causal_derivative, init_value, time))
             predict_value = squeeze(stack(predict_value))
         return predict_value
+
+    def constraint(self):
+        return self.causal_derivative.graph_constraint()
 
 
 class CausalDerivative(Module):
@@ -253,53 +257,39 @@ class CausalDerivative(Module):
         connect_mat = transpose(connect_mat, 0, 1)
         return connect_mat
 
-
     @staticmethod
     def init_weights(m):
         if isinstance(m, Linear):
             xavier_uniform_(m.weight)
 
 
-def unit_test():
-    data_folder = os.path.abspath('../../resource/simulated_data/')
-    hidden_false_data = os.path.join(data_folder, 'sim_data_hidden_False_group_lmci_personal_0_type_random.pkl')
-    hidden_true_data = os.path.join(data_folder, 'sim_data_hidden_True_group_lmci_personal_0_type_random.pkl')
+def unit_test(argument):
+    data_path = argument['data_path']
+    batch_first = True if argument['batch_first'] == 'True' else False
+    batch_size = argument['batch_size']
+    mediate_size = argument['mediate_size']
+    minimum_observation = argument['minimum_observation']
+    input_size = argument['input_size']
+    mask_tag = argument['mask_tag']
+    hidden_size = argument['hidden_size']
+    reconstruct_input = True if argument['reconstruct_input'] == 'True' else False
+    predict_label = True if argument['predict_label'] == 'True' else False
+    graph_type = argument['graph_type']
+    constraint = argument['constraint_type']
 
-    batch_first = True
-    batch_size = 128
-    mediate_size = 2
-    minimum_observation = 2
-    input_size = 5
-    mask_tag = -1
-    hidden_size = 4
-    reconstruct_input = True
-    predict_label = True
-
-    test_seq = [
-        ['ADMG', 'arid'],
-        ['DAG', 'default'],
-        ['ADMG', 'ancestral'],
-        ['ADMG', 'bow-free'],
-    ]
-
-    for (graph_type, constraint) in test_seq:
-        model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
-                                           hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size)
-        loss = model.causal_derivative.graph_constraint()
-        if graph_type == 'DAG':
-            data = pickle.load(open(hidden_false_data, 'rb'))['data']['train']
-        elif graph_type == 'ADMG':
-            data = pickle.load(open(hidden_true_data, 'rb'))['data']['train']
-        else:
-            raise ValueError('')
-        dataset = SequentialVisitDataset(data)
-        sampler = RandomSampler(dataset)
-        dataloader = SequentialVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
-                                               minimum_observation=minimum_observation,
-                                               reconstruct_input=reconstruct_input, predict_label=predict_label)
-        for batch in dataloader:
-            out = model(batch)
-
-
-if __name__ == '__main__':
-    unit_test()
+    model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
+                                       hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size)
+    _ = model.causal_derivative.graph_constraint()
+    if graph_type == 'DAG':
+        data = pickle.load(open(data_path, 'rb'))['data']['train']
+    elif graph_type == 'ADMG':
+        data = pickle.load(open(data_path, 'rb'))['data']['train']
+    else:
+        raise ValueError('')
+    dataset = SequentialVisitDataset(data)
+    sampler = RandomSampler(dataset)
+    dataloader = SequentialVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
+                                           minimum_observation=minimum_observation,
+                                           reconstruct_input=reconstruct_input, predict_label=predict_label)
+    for batch in dataloader:
+        __ = model(batch)
