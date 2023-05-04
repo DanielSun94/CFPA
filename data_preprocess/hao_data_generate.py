@@ -2,6 +2,7 @@ import os
 import random
 import argparse
 import pickle
+import numpy as np
 from scipy.integrate import solve_ivp
 from yaml import Loader, load
 
@@ -9,13 +10,13 @@ from yaml import Loader, load
 def main():
     default_save_data_folder = os.path.abspath('../resource/simulated_data')
     default_config_path = os.path.abspath('../resource/hao_model_config.yaml')
-    default_use_hidden = "False"
+    default_use_hidden = "True"
     default_group = 'lmci'
     default_sample_type = 'random'
-    default_train_sample_size = 800
-    default_valid_sample_size = 200
-    default_test_sample_size = 200
-    default_personalized_type = 0
+    default_train_sample_size = 1024
+    default_valid_sample_size = 128
+    default_test_sample_size = 128
+    default_personalized_type = 2
     parser = argparse.ArgumentParser(description='simulate data generating')
     parser.add_argument('--config_path', type=str, default=default_config_path)
     parser.add_argument('--use_hidden', type=str, default=default_use_hidden)
@@ -28,9 +29,11 @@ def main():
     parser.add_argument('--save_data_folder', type=str, default=default_save_data_folder)
     args = parser.parse_args()
 
+    assert args.use_hidden == "True" or args.use_hidden == 'False'
+
     setting_dict = {
         'config_path': args.config_path,
-        'use_hidden': args.use_hidden,
+        'use_hidden': True if args.use_hidden == 'True' else False,
         'group': args.group,
         'sample_type': args.sample_type,
         'train_sample_size': args.train_sample_size,
@@ -55,9 +58,9 @@ def main():
     config = load(open(config_path, 'r'), Loader)
     model = HaoModel(config, use_hidden)
 
-    test_data = model.generate_dataset(test_sample_size, personalized_type, group, sample_type)
-    train_data = model.generate_dataset(train_sample_size, personalized_type, group, sample_type)
-    valid_data = model.generate_dataset(valid_sample_size, personalized_type, group, sample_type)
+    train_data, valid_data, test_data, stat_dict = \
+        model.generate_dataset(train_sample_size, valid_sample_size, test_sample_size, personalized_type,
+                               group, sample_type)
 
     save_name = 'sim_data_hidden_{}_group_{}_personal_{}_type_{}.pkl'\
         .format(use_hidden, group, personalized_type, sample_type)
@@ -68,7 +71,8 @@ def main():
             'data': {
                 'train': train_data,
                 'valid': valid_data,
-                'test': test_data
+                'test': test_data,
+                'stat_dict': stat_dict
             }
         },
         open(os.path.join(setting_dict['save_data_folder'], save_name), 'wb')
@@ -170,28 +174,27 @@ class HaoModel(object):
             the tau_o -> c connection (as well as the parameter) is purely hypothetical. It is only used for the
             confounder identification test
             """
-            if use_hidden == "True":
-                return [
+            if use_hidden:
+                derivative = [
                     lambda_a_beta * y[0] * (1 - y[0] / k_a_beta),
                     lambda_tau * y[0] * (1 - y[1] / k_tau),
                     lambda_tau_o,
                     (lambda_ntau_o * y[2] + lambda_ntau_p * y[1]) * (1 - y[3] / k_n),
                     (lambda_cn * y[3] + 0.4 * lambda_ctau * (y[1] + y[2])) * (1 - y[4] / k_c)
                 ]
-            elif use_hidden == "False":
-                return [
+            else:
+                derivative = [
                     lambda_a_beta * y[0] * (1 - y[0] / k_a_beta),
                     lambda_tau * y[0] * (1 - y[1] / k_tau),
                     lambda_tau_o,
                     (lambda_ntau_o * y[2] + lambda_ntau_p * y[1]) * (1 - y[3] / k_n),
                     (lambda_cn * y[3] + lambda_ctau * y[1]) * (1 - y[4] / k_c)
                 ]
-            else:
-                raise ValueError('')
+            return derivative
 
         t_span = t_init, visit_time
         initial_state = [a_init, tau_p_init, tau_o_init, n_init, c_init]
-        full_result = solve_ivp(hao_dynamic_system, t_span, initial_state)
+        full_result = solve_ivp(hao_dynamic_system, t_span, initial_state, method='DOP853')
         result = full_result.y[:, -1]
         return {
             'a': result[0],
@@ -219,6 +222,7 @@ class HaoModel(object):
                 para_turb_range = key_para_std * random.uniform(-turb_1, turb_1)
             else:
                 para_turb_range = key_para_mean * random.uniform(-turb_2, turb_2)
+            assert key_para_mean + para_turb_range > 0
             new_para[key] = key_para_mean + para_turb_range
         for key in init_mean:
             key_init_mean = init_mean[key]
@@ -227,6 +231,7 @@ class HaoModel(object):
                 init_turb_range = key_init_std * random.uniform(-turb_1, turb_1)
             else:
                 init_turb_range = key_init_mean * random.uniform(-turb_2, turb_2)
+            assert key_init_mean + init_turb_range > 0
             new_init[key] = key_init_mean + init_turb_range
 
         if personalized == 0:
@@ -253,13 +258,9 @@ class HaoModel(object):
         """
         noisy_sample = {}
         for key in sample_dict:
-            noise = -10**6
-            while -1 * noise > sample_dict[key]:
-                standard_variance = init_mean[key] * self.__sample_info['noise_coefficient']
-                noise = random.gauss(0, standard_variance)
-                if key in noisy_sample:
-                    print('previous sample failed')
-                noisy_sample[key] = noise + sample_dict[key]
+            standard_variance = init_mean[key] * self.__sample_info['noise_coefficient']
+            noise = random.gauss(0, standard_variance)
+            noisy_sample[key] = noise + sample_dict[key]
 
         missing_rate = self.__missing_rate_dict
         final_sample = {}
@@ -272,8 +273,14 @@ class HaoModel(object):
                 final_sample[key] = -1
         return final_sample
 
-    def generate_dataset(self, sample_size, personalized_type, group, sample_type):
-        dataset = []
+    def generate_dataset(self, train_size, valid_size, test_size, personalized_type, group, sample_type):
+        train = self.generate_dataset_fraction(train_size, group, personalized_type, sample_type)
+        valid = self.generate_dataset_fraction(valid_size, group, personalized_type, sample_type)
+        test = self.generate_dataset_fraction(test_size, group, personalized_type, sample_type)
+        train, valid, test, stat_dict = self.post_preprocess(train, valid, test)
+        return train, valid, test, stat_dict
+
+    def generate_dataset_fraction(self, sample_size, group, personalized_type, sample_type):
         random_min_visit = self.__sample_info['random_min_visit']
         random_max_visit = self.__sample_info['random_max_visit']
         random_max_interval = self.__sample_info['random_max_interval']
@@ -282,6 +289,7 @@ class HaoModel(object):
         uniform_visit = self.__sample_info['uniform_visit']
         init_time = self.__sample_info['t_0']
         init_mean, init_std, para_mean, para_std = self.__get_generating_info(group)
+        dataset = []
         for i in range(sample_size):
             if sample_type == 'random':
                 visit_num = random.randint(random_min_visit, random_max_visit)
@@ -302,6 +310,44 @@ class HaoModel(object):
                                                     para_std, personalized_type)
             dataset.append(trajectory)
         return dataset
+
+    def post_preprocess(self, train, valid, test):
+        true_dict = {'a': [], 'tau_p': [], 'tau_o': [], 'n': [], 'c': []}
+        for data_fraction in train, valid, test:
+            for sample in data_fraction:
+                true_value = sample['true_value']
+                for visit in true_value:
+                    for key in visit:
+                        if key in true_dict:
+                            true_dict[key].append(visit[key])
+        true_stat_dict = dict()
+        for key in true_dict:
+            true_stat_dict[key] = np.mean(true_dict[key]), np.std(true_dict[key])
+
+        new_train, new_valid, new_test = [], [], []
+        for origin, new in zip([train, valid, test], [new_train, new_valid, new_test]):
+            for sample in origin:
+                new_sample = {'init': sample['init'], 'para': sample['para']}
+                obs, true = [], []
+                for origin_visit_list, new_visit_list in \
+                        zip([sample['observation'], sample['true_value']], [obs, true]):
+                    for single_visit in origin_visit_list:
+                        new_single_visit = {}
+                        for key in single_visit:
+                            value = single_visit[key]
+                            if key == 'visit_time':
+                                new_single_visit[key] = value
+                            elif value == -1:
+                                new_single_visit[key] = -99999
+                            elif key == 'tau_o' and self.__use_hidden:
+                                continue
+                            else:
+                                new_single_visit[key] = (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
+                        new_visit_list.append(new_single_visit)
+                new_sample['observation'] = obs
+                new_sample['true_data'] = true
+                new.append(new_sample)
+        return new_train, new_valid, new_test, true_stat_dict
 
     def __get_generating_info(self, group):
         if group == 'lmci':

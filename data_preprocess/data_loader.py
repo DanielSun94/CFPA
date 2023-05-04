@@ -39,7 +39,7 @@ def format_check(dataset):
         ...
     ]
 
-    we use -1 to denote missing data
+    we use -99999 to denote missing data
     """
     assert isinstance(dataset, list)
     for sample in dataset:
@@ -56,10 +56,7 @@ def format_check(dataset):
                 if key == 'visit_time':
                     assert single_visit[key] > 0 and isinstance(single_visit[key], float)
                 else:
-                    if single_visit[key] < 0:
-                        assert single_visit[key] == -1
-                    else:
-                        assert isinstance(single_visit[key], float)
+                    assert isinstance(single_visit[key], float)
     return True
 
 
@@ -79,26 +76,32 @@ class SingleVisitDataset(Dataset):
         format_check(dataset)
         self.id_name_dict, self.name_id_dict = id_map(dataset[0]['observation'][0])
         self.dataset = dataset
-        self.single_sample_list = self.data_reorganize(dataset)
+        self.obs_data_list, self.true_data_list = self.data_reorganize(dataset)
 
     def data_reorganize(self, data):
-        single_data_list = []
+        obs_data_list, true_data_list = [], []
         for sample in data:
-            for single_visit in sample['observation']:
-                single_data = [0 for _ in range(len(single_visit) - 1)]
-                for key in single_visit:
+            for observed_data, true_data in zip(sample['observation'], sample['true_value']):
+                single_obs_data, single_true_data = [0] * len(observed_data), [0] * len(true_data)
+                for key in observed_data:
                     if key == 'visit_time':
                         continue
                     idx = self.name_id_dict[key]
-                    single_data[idx] = single_visit[key]
-                single_data_list.append(single_data)
-        return single_data_list
+                    single_obs_data[idx] = observed_data[key]
+                obs_data_list.append(single_obs_data)
+                for key in true_data:
+                    if key == 'visit_time':
+                        continue
+                    idx = self.name_id_dict[key]
+                    single_true_data[idx] = true_data[key]
+                true_data_list.append(single_true_data)
+        return obs_data_list, true_data_list
 
     def __len__(self):
-        return len(self.single_sample_list)
+        return len(self.obs_data_list)
 
     def __getitem__(self, index):
-        return self.single_sample_list[index]
+        return self.true_data_list[index], self.obs_data_list[index]
 
 
 class SequentialVisitDataset(Dataset):
@@ -106,33 +109,43 @@ class SequentialVisitDataset(Dataset):
         format_check(dataset)
         self.id_name_dict, self.name_id_dict = id_map(dataset[0]['observation'][0])
         self.dataset = dataset
-        self.data_list, self.time_list = self.data_split(dataset)
+        self.obs_list, self.true_list, self.time_list = self.data_split(dataset)
 
     def data_split(self, data):
-        data_list = []
-        time_list = []
+        obs_list, true_list, time_list = [], [], []
         for sample in data:
-            single_sequence_data, single_sequence_time = [], []
-            sequence = sample['observation']
-            sequence = sorted(sequence, key=lambda x: x['visit_time'], reverse=False)
-            for single_visit in sequence:
-                single_sequence_time.append(single_visit['visit_time'])
-                single_data = [0 for _ in range(len(single_visit) - 1)]
-                for key in single_visit:
+            single_obs_sequence_data, single_sequence_time, single_true_sequence_data = [], [], []
+            observation_sequence, true_sequence = sample['observation'], sample['true_data']
+            observation_sequence = sorted(observation_sequence, key=lambda x: x['visit_time'], reverse=False)
+            true_sequence = sorted(true_sequence, key=lambda x: x['visit_time'], reverse=False)
+            for single_obs_visit in observation_sequence:
+                single_obs_data = [0] * (len(single_obs_visit)-1)
+                for key in single_obs_visit:
                     if key == 'visit_time':
                         continue
                     idx = self.name_id_dict[key]
-                    single_data[idx] = single_visit[key]
-                single_sequence_data.append(single_data)
-            data_list.append(single_sequence_data)
+                    single_obs_data[idx] = single_obs_visit[key]
+                single_obs_sequence_data.append(single_obs_data)
+                single_sequence_time.append(single_obs_visit['visit_time'])
+            for single_true_visit in true_sequence:
+                single_true_data = [0] * (len(single_true_visit)-1)
+                for key in single_true_visit:
+                    if key == 'visit_time':
+                        continue
+                    idx = self.name_id_dict[key]
+                    single_true_data[idx] = single_true_visit[key]
+                single_true_sequence_data.append(single_true_data)
+
+            obs_list.append(single_obs_sequence_data)
+            true_list.append(single_true_sequence_data)
             time_list.append(single_sequence_time)
-        return data_list, time_list
+        return obs_list, true_list, time_list
 
     def __len__(self):
-        return len(self.data_list)
+        return len(self.obs_list)
 
     def __getitem__(self, index):
-        return self.data_list[index], self.time_list[index]
+        return self.obs_list[index], self.true_list[index], self.time_list[index]
 
 
 class SingleVisitDataloader(DataLoader):
@@ -159,7 +172,7 @@ class SequentialVisitDataloader(DataLoader):
         self.reconstruct_input = reconstruct_input
         self.predict_label = predict_label
         self.minimum_observation = minimum_observation
-        super().__init__(dataset, batch_size=len(dataset), sampler=sampler, collate_fn=self.collate_fn)
+        super().__init__(dataset, batch_size=batch_size, sampler=sampler, collate_fn=self.collate_fn)
 
     def reorganize_batch_data(self, data):
         min_obser_time = self.minimum_observation
@@ -170,20 +183,21 @@ class SequentialVisitDataloader(DataLoader):
         for idx in sample_id_list:
             batch_data.append(data[idx])
         # random sample label and observation
-        time_list = [item[1] for item in batch_data]
-        feature_list = [item[0] for item in batch_data]
+        time_list = [item[2] for item in batch_data]
+        observed_list = [item[0] for item in batch_data]
+        true_list = [item[1] for item in batch_data]
         valid_length_list = [len(item) for item in time_list]
         # for the randint and slice character, the prediction idx need to minus one, while the observation does not
-        # 此处的min_obser_time从0起数
-        observation_idx_list = [random.randint(min_obser_time, length - 1) for length in valid_length_list]
+        # 此处的min_obs_time从0起数
+        obs_idx_list = [random.randint(min_obser_time, length - 1) for length in valid_length_list]
 
         available_feature_list, available_time_list, predict_feature_list, predict_time_list = [], [], [], []
-        for sample_time_list, sample_feature_list, sample_obser_idx in \
-                zip(time_list, feature_list, observation_idx_list):
-            predict_time_list.append(sample_time_list[sample_obser_idx:])
-            predict_feature_list.append(sample_feature_list[sample_obser_idx:])
-            available_feature_list.append(sample_feature_list[:sample_obser_idx])
-            available_time_list.append(sample_time_list[:sample_obser_idx])
+        for sample_time_list, obs_value_list, true_value_list, sample_obs_idx in \
+                zip(time_list, observed_list, true_list, obs_idx_list):
+            predict_time_list.append(sample_time_list[sample_obs_idx:])
+            predict_feature_list.append(true_value_list[sample_obs_idx:])
+            available_feature_list.append(obs_value_list[:sample_obs_idx])
+            available_time_list.append(sample_time_list[:sample_obs_idx])
         return predict_time_list, predict_feature_list, available_time_list, available_feature_list
 
     def collate_fn(self, data):
@@ -191,11 +205,11 @@ class SequentialVisitDataloader(DataLoader):
                       input_masks, label_features, label_times, label_masks, types):
             input_time_copy = deepcopy(input_time)
             input_feature_copy = deepcopy(input_feature)
-            input_feature_mask = np.array(input_feature_copy) == -1
+            input_feature_mask = np.array(input_feature_copy) == -99999
             input_feature_copy = (1 - input_feature_mask) * input_feature_copy
             output_time_copy = deepcopy(output_time)
             output_feature_copy = deepcopy(output_feature)
-            output_feature_mask = np.array(output_feature_copy) == -1
+            output_feature_mask = np.array(output_feature_copy) == -99999
             output_feature_copy = (1 - output_feature_mask) * output_feature_copy
             input_features.append(input_feature_copy.tolist())
             input_times.append(input_time_copy)
@@ -326,6 +340,7 @@ def main():
     min_obser = 2
     mask_tag = -1
     reconstruct_input = True
+    predict_label = True
     data_folder = os.path.abspath('../resource/simulated_data/')
     false_data_path = os.path.join(data_folder, 'sim_data_hidden_False_group_lmci_personal_0_type_random.pkl')
     true_data_path = os.path.join(data_folder, 'sim_data_hidden_True_group_lmci_personal_0_type_random.pkl')
@@ -348,7 +363,7 @@ def main():
                 sampler = RandomSampler(dataset)
                 dataloader = SequentialVisitDataloader(
                     dataset, batch_size, sampler=sampler, mask=mask_tag, minimum_observation=min_obser,
-                    reconstruct_input=reconstruct_input)
+                    reconstruct_input=reconstruct_input, predict_label=predict_label)
                 for _ in dataloader:
                     print('')
 

@@ -48,6 +48,8 @@ class CausalTrajectoryPrediction(Module):
         predict_value = squeeze(stack(predict_value))
 
         # calculate loss
+        # 这里使用MSE应该没啥问题
+        # https://ai.stackexchange.com/questions/27341/in-variational-autoencoders-why-do-people-use-mse-for-the-loss
         loss, mse_loss, bce_loss = [], MSELoss(reduction='none'), BCELoss(reduction='none')
         predict_value = chunk(predict_value, predict_value.shape[1], dim=1)
         label_feature = chunk(label_feature, len(label_feature[0]), dim=1)
@@ -92,6 +94,16 @@ class CausalTrajectoryPrediction(Module):
 
     def constraint(self):
         return self.causal_derivative.graph_constraint()
+
+
+    def generate_graph(self):
+        # To Be Done
+        raise NotImplementedError
+
+    @staticmethod
+    def init_weights(m):
+        if isinstance(m, Linear):
+            xavier_uniform_(m.weight)
 
 
 class CausalDerivative(Module):
