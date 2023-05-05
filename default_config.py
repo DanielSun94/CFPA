@@ -12,12 +12,12 @@ data_folder = os.path.abspath('../resource/simulated_data/')
 dataset = 'spiral_2d'
 
 if dataset == 'hao_true':
-    data_path = os.path.join(data_folder, 'sim_hao_model_hidden_False_group_lmci_personal_2_type_random.pkl')
+    data_path = os.path.join(data_folder, 'sim_hao_model_hidden_True_group_lmci_personal_2_type_random.pkl')
     time_offset = 50
     minimum_observation = 4
     input_size = 4
 elif dataset == 'hao_false':
-    data_path = os.path.join(data_folder, 'sim_data_hidden_False_group_lmci_personal_0_type_random.pkl')
+    data_path = os.path.join(data_folder, 'sim_hao_model_hidden_False_group_lmci_personal_2_type_random.pkl')
     time_offset = 50
     minimum_observation = 4
     input_size = 5
@@ -35,14 +35,14 @@ default_config = {
     'process_name': 'verification',
 
     # dataset config
-    'dataset_name': 'default',
+    'dataset_name': dataset,
     "data_path": data_path,
     "batch_first": "True",
     "minimum_observation": minimum_observation,
     "input_size": input_size,
     "mask_tag": missing_flag_num,
     "reconstruct_input": "True",
-    "predict_label": "False",
+    "predict_label": "True",
     'time_offset': time_offset,
 
     # model config
@@ -52,10 +52,10 @@ default_config = {
     # train setting
     'max_epoch': 10000,
     'max_iteration': 1000000,
-    "batch_size": 32,
+    "batch_size": 128,
     "model_converge_threshold": 10**-8,
-    "learning_rate": 0.03,
-    "eval_iter_interval": 2,
+    "learning_rate": 0.01,
+    "eval_iter_interval": 5,
     "eval_epoch_interval": -1,
 
     # graph setting

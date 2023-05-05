@@ -1,13 +1,13 @@
 import numpy as np
 import torch
-from torch import FloatTensor, chunk, squeeze, stack, no_grad, transpose
+from torch import FloatTensor, chunk, squeeze, unsqueeze, no_grad
 from torch.nn import Module, Sequential, Linear, ReLU, LSTM, MSELoss
-from torch.nn.utils.rnn import pad_sequence
 from torchdiffeq import odeint_adjoint as odeint
 from torch.nn.init import xavier_uniform_
 from util import get_data_loader
 from default_config import logger, args
 from torch.optim import Adam
+from torch.nn.utils.rnn import pad_sequence
 
 
 class Derivative(Module):
@@ -34,38 +34,51 @@ class NODE(Module):
         self.derivative.apply(self.init_weights)
         self.projection_net.apply(self.init_weights)
         self.init_network.apply(self.init_weights)
-
-        self.linear = Linear(4, 5)
+        # 这里使用MSE应该没啥问题
+        # https://ai.stackexchange.com/questions/27341/in-variational-autoencoders-why-do-people-use-mse-for-the-loss
+        self.loss = MSELoss(reduction='none')
 
     def forward(self, data):
         # data format [batch_size, visit_idx, feature_idx]
-        concat_input, _, _, _, label_feature_list, label_time_list, label_mask_list, _ = data
-        label_feature = FloatTensor(label_feature_list)
-        label_mask_list = FloatTensor(label_mask_list)
+        concat_input, _, _, _, label_feature_list, \
+            label_time_list, label_mask_list, type_list, input_len_list, label_len_list = data
+
+        concat_input = pad_sequence(concat_input, batch_first=True, padding_value=0).float()
+
         # estimate the init value
-        init_value = self.predict_init_value(concat_input)
+        init_value = self.predict_init_value(concat_input, input_len_list)
 
         # predict label
-        label_time_list = FloatTensor(label_time_list)
         init_value_list = chunk(init_value, init_value.shape[0], dim=0)
-        time_list = chunk(label_time_list, label_time_list.shape[0], dim=0)
-        predict_value = []
-        for init_value, time in zip(init_value_list, time_list):
-            predict_value.append(odeint(self.derivative, init_value, time-self.time_offset))
-        predict_value = squeeze(stack(predict_value))
 
-        # calculate loss
-        # 这里使用MSE应该没啥问题
-        # https://ai.stackexchange.com/questions/27341/in-variational-autoencoders-why-do-people-use-mse-for-the-loss
-        mse_loss = MSELoss(reduction='none')
-        loss = mse_loss(predict_value, label_feature)
-        loss = loss * (1-label_mask_list)
-        return predict_value, label_feature_list, loss
+        loss_sum = 0
+        predict_value_list, loss_list, recons_loss_list, predict_loss_list = [], [], [], []
+        for init_value, sample_time_list, label, label_mask, sample_type in \
+                zip(init_value_list, label_time_list, label_feature_list, label_mask_list, type_list):
+            sample_time_list = unsqueeze(squeeze(FloatTensor(sample_time_list) - self.time_offset), 0)[0]
+            predict_value = odeint(self.derivative, init_value, sample_time_list)
+            predict_value = squeeze(predict_value)
+            predict_value_list.append(predict_value)
+            recons_len, pred_len = torch.sum(sample_type == 1), torch.sum(sample_type == 2)
 
-    def predict_init_value(self, concat_input):
-        length_list = np.array([len(item) for item in concat_input])
-        concat_input = [FloatTensor(item) for item in concat_input]
-        data = pad_sequence(concat_input, batch_first=True, padding_value=0).float()
+            loss = self.loss(predict_value, FloatTensor(label)) * (1-FloatTensor(label_mask))
+            loss_sum += loss.sum() / (recons_len+pred_len)
+
+            loss_new = loss.detach()
+            sample_type = unsqueeze(sample_type, dim=1)
+            recons_loss = loss_new * (sample_type == 1)
+            pred_loss = loss_new * (sample_type == 2)
+            recons_loss = torch.sum(recons_loss) / recons_len
+            pred_loss = torch.sum(pred_loss) / pred_len
+            recons_loss_list.append(recons_loss)
+            predict_loss_list.append(pred_loss)
+
+        loss = loss_sum / len(init_value_list)
+        recons_loss = torch.mean(FloatTensor(recons_loss_list))
+        pred_loss = torch.mean(FloatTensor(predict_loss_list))
+        return predict_value_list, label_feature_list, loss, recons_loss, pred_loss
+
+    def predict_init_value(self, data, length_list):
         mask_mat = np.zeros([data.shape[0], data.shape[1], 1])
         for idx in range(len(length_list)):
             mask_mat[idx, :length_list[idx], 0] = 1
@@ -75,7 +88,7 @@ class NODE(Module):
         init_seq, _ = self.init_network(data)
         init_seq = init_seq * mask_mat
         init_seq = torch.sum(init_seq, dim=1)
-        init_seq = (init_seq / FloatTensor(length_list[:, np.newaxis])).float()
+        init_seq = (init_seq / FloatTensor(np.array(length_list)[:, np.newaxis])).float()
 
         value_init = self.projection_net(init_seq)
         return value_init
@@ -95,9 +108,9 @@ def train(train_dataloader, val_loader, max_epoch, max_iteration, model, optimiz
             iter_idx += 1
             if iter_idx > max_iteration:
                 break
-            predict, label_feature, loss = model(batch)
+            predict_value_list, label_feature_list, loss, recons_loss, pred_loss = model(batch)
             optimizer.zero_grad()
-            loss.mean().backward()
+            loss.backward()
             optimizer.step()
             if eval_iter_interval > 0 and iter_idx % eval_iter_interval == 0:
                 evaluation(iter_idx, epoch_idx, model, train_dataloader, val_loader)
@@ -112,13 +125,10 @@ def evaluation(iter_idx, epoch_idx, model, train_loader, val_loader):
         for loader, [general, reconstruct, predict] in \
                 zip([train_loader, val_loader], [[t_g_l, t_r_l, t_p_l], [v_g_l, v_r_l, v_p_l]]):
             for batch in loader:
-                recons_flag = np.array(batch[7]) == 1
-                predict_flag = np.array(batch[7]) == 0
-                _, __, loss = model(batch)
-                loss = loss.mean(dim=1)
-                general.append(loss.mean())
-                reconstruct.append((loss * recons_flag).sum() / np.sum(recons_flag))
-                predict.append((loss * predict_flag).sum() / np.sum(predict_flag))
+                predict_value_list, label_feature_list, loss, recons_loss, pred_loss = model(batch)
+                general.append(loss)
+                reconstruct.append(recons_loss)
+                predict.append(pred_loss)
     t_g_l = np.mean(t_g_l)
     t_r_l = np.mean(t_r_l)
     t_p_l = np.mean(t_p_l)
