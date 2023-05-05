@@ -5,12 +5,13 @@ import pickle
 import numpy as np
 from scipy.integrate import solve_ivp
 from yaml import Loader, load
+from default_config import missing_flag_num as miss_placeholder
 
 
 def main():
     default_save_data_folder = os.path.abspath('../resource/simulated_data')
     default_config_path = os.path.abspath('../resource/hao_model_config.yaml')
-    default_use_hidden = "True"
+    default_use_hidden = "False"
     default_group = 'lmci'
     default_sample_type = 'random'
     default_train_sample_size = 1024
@@ -62,7 +63,7 @@ def main():
         model.generate_dataset(train_sample_size, valid_sample_size, test_sample_size, personalized_type,
                                group, sample_type)
 
-    save_name = 'sim_data_hidden_{}_group_{}_personal_{}_type_{}.pkl'\
+    save_name = 'sim_hao_model_hidden_{}_group_{}_personal_{}_type_{}.pkl'\
         .format(use_hidden, group, personalized_type, sample_type)
     pickle.dump(
         {
@@ -72,8 +73,8 @@ def main():
                 'train': train_data,
                 'valid': valid_data,
                 'test': test_data,
-                'stat_dict': stat_dict
-            }
+            },
+            'stat_dict': stat_dict
         },
         open(os.path.join(setting_dict['save_data_folder'], save_name), 'wb')
     )
@@ -170,9 +171,9 @@ class HaoModel(object):
 
         def hao_dynamic_system(_, y):
             """
-            if use hidden is true, we presume tau_o also influence the cognitive ability
+            if the use_hidden is true, we presume tau_o also influence the cognitive ability
             the tau_o -> c connection (as well as the parameter) is purely hypothetical. It is only used for the
-            confounder identification test
+            confounded identification test
             """
             if use_hidden:
                 derivative = [
@@ -194,7 +195,7 @@ class HaoModel(object):
 
         t_span = t_init, visit_time
         initial_state = [a_init, tau_p_init, tau_o_init, n_init, c_init]
-        full_result = solve_ivp(hao_dynamic_system, t_span, initial_state, method='DOP853')
+        full_result = solve_ivp(hao_dynamic_system, t_span, initial_state)
         result = full_result.y[:, -1]
         return {
             'a': result[0],
@@ -215,24 +216,17 @@ class HaoModel(object):
         turb_1 = self.__sample_info['personalized_turb_1']
         turb_2 = self.__sample_info['personalized_turb_2']
         new_para, new_init = {}, {}
-        for key in para_mean:
-            key_para_mean = para_mean[key]
-            key_para_std = para_std[key]
-            if key_para_mean > key_para_std:
-                para_turb_range = key_para_std * random.uniform(-turb_1, turb_1)
-            else:
-                para_turb_range = key_para_mean * random.uniform(-turb_2, turb_2)
-            assert key_para_mean + para_turb_range > 0
-            new_para[key] = key_para_mean + para_turb_range
-        for key in init_mean:
-            key_init_mean = init_mean[key]
-            key_init_std = init_std[key]
-            if key_init_mean > key_init_std:
-                init_turb_range = key_init_std * random.uniform(-turb_1, turb_1)
-            else:
-                init_turb_range = key_init_mean * random.uniform(-turb_2, turb_2)
-            assert key_init_mean + init_turb_range > 0
-            new_init[key] = key_init_mean + init_turb_range
+
+        for origin_mean, origin_std, new in zip([para_mean, init_mean], [para_std, init_std], [new_para, new_init]):
+            for key in origin_mean:
+                key_para_mean = origin_mean[key]
+                key_para_std = origin_std[key]
+                if key_para_mean > key_para_std:
+                    para_turb_range = key_para_std * random.uniform(-turb_1, turb_1)
+                else:
+                    para_turb_range = key_para_mean * random.uniform(-turb_2, turb_2)
+                assert key_para_mean + para_turb_range > 0
+                new[key] = key_para_mean + para_turb_range
 
         if personalized == 0:
             return init_mean, para_mean
@@ -251,16 +245,18 @@ class HaoModel(object):
         The noise signal follows a Gaussian distribution with mean zero and a standard variance
         The standard variance is the gaussian_ratio * init value
         The sampled data will be discarded (and resampled) if it is a negative number
-        The gaussian ratio need to be less than 1/3 to avoid negative value sample as much as possible
         (and keep the sampled data follows Gaussian distribution)
 
         The second type is the missing noise, which means we lost signal with respect to a preset lost ratio
         """
         noisy_sample = {}
         for key in sample_dict:
-            standard_variance = init_mean[key] * self.__sample_info['noise_coefficient']
-            noise = random.gauss(0, standard_variance)
-            noisy_sample[key] = noise + sample_dict[key]
+            noise_feature = -1
+            while noise_feature <= 0:
+                standard_variance = init_mean[key] * self.__sample_info['noise_coefficient']
+                noise = random.gauss(0, standard_variance)
+                noise_feature = noise + sample_dict[key]
+            noisy_sample[key] = noise_feature
 
         missing_rate = self.__missing_rate_dict
         final_sample = {}
@@ -270,7 +266,7 @@ class HaoModel(object):
             if ran_num > threshold:
                 final_sample[key] = noisy_sample[key]
             else:
-                final_sample[key] = -1
+                final_sample[key] = miss_placeholder
         return final_sample
 
     def generate_dataset(self, train_size, valid_size, test_size, personalized_type, group, sample_type):
@@ -335,17 +331,17 @@ class HaoModel(object):
                         new_single_visit = {}
                         for key in single_visit:
                             value = single_visit[key]
-                            if key == 'visit_time':
+                            assert value >= 0 or value == miss_placeholder
+                            if key == 'visit_time' or value == miss_placeholder:
                                 new_single_visit[key] = value
-                            elif value == -1:
-                                new_single_visit[key] = -99999
+                            # 如果是use hidden，默认tau_o应该是在true和obs中均不可见的
                             elif key == 'tau_o' and self.__use_hidden:
                                 continue
                             else:
                                 new_single_visit[key] = (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
                         new_visit_list.append(new_single_visit)
                 new_sample['observation'] = obs
-                new_sample['true_data'] = true
+                new_sample['true_value'] = true
                 new.append(new_sample)
         return new_train, new_valid, new_test, true_stat_dict
 

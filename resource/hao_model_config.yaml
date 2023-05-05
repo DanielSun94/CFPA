@@ -8,9 +8,9 @@ sample_characteristic:
   t_0: 50
   unit: "year"
   distribution: "uniform"
-  gaussian_noise_std_coefficient: 0
-  personalized_turbulence_coefficient_1: 0
-  personalized_turbulence_coefficient_2: 0
+  gaussian_noise_std_coefficient: 0.02
+  personalized_turbulence_coefficient_1: 0.2
+  personalized_turbulence_coefficient_2: 0.1
 ad:
   base_initial_value:
     a:
@@ -165,9 +165,9 @@ cn:
       mean: 59.89
       std: 80.03
 missing_rate:
-  a: 0
-  tau_p: 0
-  tau_o: 0
-  n: 0
-  c: 0
+  a: 0.05
+  tau_p: 0.05
+  tau_o: 0.05
+  n: 0.05
+  c: 0.05
 

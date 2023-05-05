@@ -1,4 +1,6 @@
-from torch import FloatTensor, chunk, squeeze, stack, transpose, mean, no_grad, LongTensor
+import numpy as np
+import torch
+from torch import FloatTensor, chunk, squeeze, stack, no_grad, transpose
 from torch.nn import Module, Sequential, Linear, ReLU, LSTM, MSELoss
 from torch.nn.utils.rnn import pad_sequence
 from torchdiffeq import odeint_adjoint as odeint
@@ -25,18 +27,21 @@ class NODE(Module):
         self.time_offset = time_offset
 
         # init value estimate module
-        self.init_network = LSTM(input_size=input_size*2+1, hidden_size=hidden_size, batch_first=batch_first,
-                                 bidirectional=True)
-        self.projection_net = Sequential(Linear(hidden_size, hidden_size), ReLU(), Linear(hidden_size, input_size))
+        self.init_network = LSTM(input_size=input_size*2+1, hidden_size=hidden_size, batch_first=batch_first)
+        self.projection_net = \
+            Sequential(Linear(hidden_size, hidden_size), ReLU(), Linear(hidden_size, input_size))
         self.derivative = Derivative(input_size, hidden_size)
         self.derivative.apply(self.init_weights)
         self.projection_net.apply(self.init_weights)
         self.init_network.apply(self.init_weights)
 
+        self.linear = Linear(4, 5)
+
     def forward(self, data):
         # data format [batch_size, visit_idx, feature_idx]
         concat_input, _, _, _, label_feature_list, label_time_list, label_mask_list, _ = data
-        label_feature, label_mask = FloatTensor(label_feature_list), FloatTensor(label_mask_list)
+        label_feature = FloatTensor(label_feature_list)
+        label_mask_list = FloatTensor(label_mask_list)
         # estimate the init value
         init_value = self.predict_init_value(concat_input)
 
@@ -54,22 +59,25 @@ class NODE(Module):
         # https://ai.stackexchange.com/questions/27341/in-variational-autoencoders-why-do-people-use-mse-for-the-loss
         mse_loss = MSELoss(reduction='none')
         loss = mse_loss(predict_value, label_feature)
-        loss = loss * (1-label_mask)
-        loss = loss.mean()
-        return predict_value, label_mask_list, label_feature_list, loss
+        loss = loss * (1-label_mask_list)
+        return predict_value, label_feature_list, loss
 
     def predict_init_value(self, concat_input):
-        length = LongTensor([len(item) for item in concat_input])
+        length_list = np.array([len(item) for item in concat_input])
         concat_input = [FloatTensor(item) for item in concat_input]
         data = pad_sequence(concat_input, batch_first=True, padding_value=0).float()
+        mask_mat = np.zeros([data.shape[0], data.shape[1], 1])
+        for idx in range(len(length_list)):
+            mask_mat[idx, :length_list[idx], 0] = 1
+        mask_mat = FloatTensor(mask_mat)
+
         # packed_data = pack_padded_sequence(data, length, batch_first=True)
         init_seq, _ = self.init_network(data)
+        init_seq = init_seq * mask_mat
+        init_seq = torch.sum(init_seq, dim=1)
+        init_seq = (init_seq / FloatTensor(length_list[:, np.newaxis])).float()
 
-        # 根据网上的相关资料，forward pass的index是前一半；这个slice的策略尽管我没查到，但是在numpy上试了试，似乎是对的
-        forward = init_seq[range(len(length)), length-1, :self.hidden_size]
-        backward = init_seq[:, 0, self.hidden_size:]
-        hidden_init = (forward + backward) / 2
-        value_init = self.projection_net(hidden_init)
+        value_init = self.projection_net(init_seq)
         return value_init
 
     @staticmethod
@@ -78,7 +86,8 @@ class NODE(Module):
             xavier_uniform_(m.weight)
 
 
-def train(train_dataloader, val_loader, max_epoch, max_iteration, model, optimizer):
+def train(train_dataloader, val_loader, max_epoch, max_iteration, model, optimizer, eval_iter_interval,
+          eval_epoch_interval):
     iter_idx = 0
     evaluation(iter_idx, 0, model, train_dataloader, val_loader)
     for epoch_idx in range(max_epoch):
@@ -86,27 +95,39 @@ def train(train_dataloader, val_loader, max_epoch, max_iteration, model, optimiz
             iter_idx += 1
             if iter_idx > max_iteration:
                 break
-            predict, label_mask, label_feature, loss = model(batch)
+            predict, label_feature, loss = model(batch)
             optimizer.zero_grad()
-            loss.backward()
+            loss.mean().backward()
             optimizer.step()
-        evaluation(iter_idx, epoch_idx, model, train_dataloader, val_loader)
+            if eval_iter_interval > 0 and iter_idx % eval_iter_interval == 0:
+                evaluation(iter_idx, epoch_idx, model, train_dataloader, val_loader)
+        if eval_epoch_interval > 0 and epoch_idx % eval_epoch_interval == 0:
+            evaluation(iter_idx, epoch_idx, model, train_dataloader, val_loader)
     return model
 
 
 def evaluation(iter_idx, epoch_idx, model, train_loader, val_loader):
     with no_grad():
-        train_loss_list, val_loss_list = [], []
-        for batch in train_loader:
-            _, __, ___, loss = model(batch)
-            train_loss_list.append(loss)
-        for batch in val_loader:
-            _, __, ___, loss = model(batch)
-            val_loss_list.append(loss)
-        train_loss = mean(FloatTensor(train_loss_list)).item()
-        val_loss = mean(FloatTensor(val_loss_list)).item()
-    logger.info('iter: {:>4d}, epoch: {:>4d}, train loss: {:>8.4f}, val loss: {:>8.4f}'
-                .format(iter_idx, epoch_idx, train_loss, val_loss))
+        t_g_l, t_r_l, t_p_l, v_g_l, v_r_l, v_p_l = [], [], [], [], [], []
+        for loader, [general, reconstruct, predict] in \
+                zip([train_loader, val_loader], [[t_g_l, t_r_l, t_p_l], [v_g_l, v_r_l, v_p_l]]):
+            for batch in loader:
+                recons_flag = np.array(batch[7]) == 1
+                predict_flag = np.array(batch[7]) == 0
+                _, __, loss = model(batch)
+                loss = loss.mean(dim=1)
+                general.append(loss.mean())
+                reconstruct.append((loss * recons_flag).sum() / np.sum(recons_flag))
+                predict.append((loss * predict_flag).sum() / np.sum(predict_flag))
+    t_g_l = np.mean(t_g_l)
+    t_r_l = np.mean(t_r_l)
+    t_p_l = np.mean(t_p_l)
+    v_g_l = np.mean(v_g_l)
+    v_r_l = np.mean(v_r_l)
+    v_p_l = np.mean(v_p_l)
+    logger.info('iter: {:>4d}, epoch: {:>4d}, loss: train: general: {:>8.4f}, reconstruct: {:>8.4f}, predict: '
+                '{:>8.4f}, val: general: {:>8.4f}, reconstruct: {:>8.4f}, predict: {:>8.4f}'
+                .format(iter_idx, epoch_idx, t_g_l, t_r_l, t_p_l, v_g_l, v_r_l, v_p_l))
 
 
 def framework(argument):
@@ -132,17 +153,21 @@ def framework(argument):
     learning_rate = argument['learning_rate']
     dataloader_dict = get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
                                       reconstruct_input, predict_label)
+    eval_iter_interval = argument['eval_iter_interval']
+    eval_epoch_interval = argument['eval_epoch_interval']
+    time_offset = argument['time_offset']
+
+    # data loader
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
 
-    time_offset = 50
-
+    # model
     model = NODE(input_size=input_size, hidden_size=hidden_size, batch_first=batch_first, time_offset=time_offset)
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
     _ = train(train_dataloader, validation_dataloader, max_epoch, max_iteration, model,
-              optimizer)
-    print('')
+              optimizer, eval_iter_interval, eval_epoch_interval)
+    logger.info('complete')
 
 
 if __name__ == '__main__':

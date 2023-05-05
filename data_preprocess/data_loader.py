@@ -4,6 +4,7 @@ import random
 import numpy as np
 from copy import deepcopy
 from torch.utils.data import Dataset, RandomSampler, DataLoader
+from default_config import missing_flag_num
 
 
 def format_check(dataset):
@@ -54,9 +55,7 @@ def format_check(dataset):
             assert 'visit_time' in single_visit
             for key in single_visit:
                 if key == 'visit_time':
-                    assert single_visit[key] > 0 and isinstance(single_visit[key], float)
-                else:
-                    assert isinstance(single_visit[key], float)
+                    assert single_visit[key] >= 0 and isinstance(single_visit[key], float)
     return True
 
 
@@ -115,7 +114,7 @@ class SequentialVisitDataset(Dataset):
         obs_list, true_list, time_list = [], [], []
         for sample in data:
             single_obs_sequence_data, single_sequence_time, single_true_sequence_data = [], [], []
-            observation_sequence, true_sequence = sample['observation'], sample['true_data']
+            observation_sequence, true_sequence = sample['observation'], sample['true_value']
             observation_sequence = sorted(observation_sequence, key=lambda x: x['visit_time'], reverse=False)
             true_sequence = sorted(true_sequence, key=lambda x: x['visit_time'], reverse=False)
             for single_obs_visit in observation_sequence:
@@ -175,7 +174,7 @@ class SequentialVisitDataloader(DataLoader):
         super().__init__(dataset, batch_size=batch_size, sampler=sampler, collate_fn=self.collate_fn)
 
     def reorganize_batch_data(self, data):
-        min_obser_time = self.minimum_observation
+        min_obs_time = self.minimum_observation
         batch_size = self.real_batch_size
         sample_id_list = np.random.randint(0, len(data), [batch_size])
 
@@ -189,7 +188,7 @@ class SequentialVisitDataloader(DataLoader):
         valid_length_list = [len(item) for item in time_list]
         # for the randint and slice character, the prediction idx need to minus one, while the observation does not
         # 此处的min_obs_time从0起数
-        obs_idx_list = [random.randint(min_obser_time, length - 1) for length in valid_length_list]
+        obs_idx_list = [random.randint(min_obs_time, length - 1) for length in valid_length_list]
 
         available_feature_list, available_time_list, predict_feature_list, predict_time_list = [], [], [], []
         for sample_time_list, obs_value_list, true_value_list, sample_obs_idx in \
@@ -205,11 +204,11 @@ class SequentialVisitDataloader(DataLoader):
                       input_masks, label_features, label_times, label_masks, types):
             input_time_copy = deepcopy(input_time)
             input_feature_copy = deepcopy(input_feature)
-            input_feature_mask = np.array(input_feature_copy) == -99999
+            input_feature_mask = np.array(input_feature_copy) == missing_flag_num
             input_feature_copy = (1 - input_feature_mask) * input_feature_copy
             output_time_copy = deepcopy(output_time)
             output_feature_copy = deepcopy(output_feature)
-            output_feature_mask = np.array(output_feature_copy) == -99999
+            output_feature_mask = np.array(output_feature_copy) == missing_flag_num
             output_feature_copy = (1 - output_feature_mask) * output_feature_copy
             input_features.append(input_feature_copy.tolist())
             input_times.append(input_time_copy)
@@ -222,22 +221,22 @@ class SequentialVisitDataloader(DataLoader):
         predict_time_list, predict_feature_list, available_time_list, available_feature_list = \
             self.reorganize_batch_data(data)
         data = []
-        for pred_time, pred_feature, avail_time, avai_feature in \
+        for pred_time, pred_feature, avail_time, ava_feature in \
                 zip(predict_time_list, predict_feature_list, available_time_list, available_feature_list):
-            data.append([pred_time, pred_feature, avail_time, avai_feature])
+            data.append([pred_time, pred_feature, avail_time, ava_feature])
         data = sorted(data, key=lambda x: len(x[3]), reverse=True)
 
         input_feature_list, input_time_list, input_mask_list, label_feature_list, label_time_list, label_mask_list, \
             type_list = [], [], [], [], [], [], []
         for item in data:
-            pred_time, pred_feature, avail_time, avai_feature = item
+            pred_time, pred_feature, avail_time, avail_feature = item
             if self.reconstruct_input:
-                for time, feature in zip(avail_time, avai_feature):
-                    feed_list(avai_feature, avail_time, feature, time, 1, input_feature_list, input_time_list,
+                for time, feature in zip(avail_time, avail_feature):
+                    feed_list(avail_feature, avail_time, feature, time, 1, input_feature_list, input_time_list,
                               input_mask_list, label_feature_list, label_time_list, label_mask_list, type_list)
             if self.predict_label:
                 for time, feature in zip(pred_time, pred_feature):
-                    feed_list(avai_feature, avail_time, feature, time, 0, input_feature_list, input_time_list,
+                    feed_list(avail_feature, avail_time, feature, time, 0, input_feature_list, input_time_list,
                               input_mask_list, label_feature_list, label_time_list, label_mask_list, type_list)
 
         concat_input = []
@@ -337,7 +336,7 @@ class SequentialVisitDataloader(DataLoader):
 
 def main():
     batch_size = 16
-    min_obser = 2
+    min_obs = 2
     mask_tag = -1
     reconstruct_input = True
     predict_label = True
@@ -362,7 +361,7 @@ def main():
             for dataset in [dataset_3, dataset_4]:
                 sampler = RandomSampler(dataset)
                 dataloader = SequentialVisitDataloader(
-                    dataset, batch_size, sampler=sampler, mask=mask_tag, minimum_observation=min_obser,
+                    dataset, batch_size, sampler=sampler, mask=mask_tag, minimum_observation=min_obs,
                     reconstruct_input=reconstruct_input, predict_label=predict_label)
                 for _ in dataloader:
                     print('')

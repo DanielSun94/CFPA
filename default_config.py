@@ -9,21 +9,41 @@ sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__f
 t = datetime.datetime.now()
 time = ".".join([str(t.year), str(t.month), str(t.day), str(t.hour), str(t.minute), str(t.second)])
 data_folder = os.path.abspath('../resource/simulated_data/')
-# hidden_false_data_path = os.path.join(data_folder, 'sim_data_hidden_False_group_lmci_personal_0_type_random.pkl')
-hidden_true_data_path = os.path.join(data_folder, 'sim_data_hidden_False_group_lmci_personal_2_type_random.pkl')
+dataset = 'spiral_2d'
+
+if dataset == 'hao_true':
+    data_path = os.path.join(data_folder, 'sim_hao_model_hidden_False_group_lmci_personal_2_type_random.pkl')
+    time_offset = 50
+    minimum_observation = 4
+    input_size = 4
+elif dataset == 'hao_false':
+    data_path = os.path.join(data_folder, 'sim_data_hidden_False_group_lmci_personal_0_type_random.pkl')
+    time_offset = 50
+    minimum_observation = 4
+    input_size = 5
+elif dataset == 'spiral_2d':
+    data_path = os.path.join(data_folder, 'spiral_2d.pkl')
+    minimum_observation = 102
+    time_offset = 0
+    input_size = 2
+else:
+    raise ValueError('')
+missing_flag_num = -99999
+
 
 default_config = {
     'process_name': 'verification',
 
     # dataset config
     'dataset_name': 'default',
-    "data_path": hidden_true_data_path,
+    "data_path": data_path,
     "batch_first": "True",
-    "minimum_observation": 4,
-    "input_size": 5,
-    "mask_tag": -1,
+    "minimum_observation": minimum_observation,
+    "input_size": input_size,
+    "mask_tag": missing_flag_num,
     "reconstruct_input": "True",
-    "predict_label": "True",
+    "predict_label": "False",
+    'time_offset': time_offset,
 
     # model config
     "mediate_size": 2,
@@ -32,9 +52,11 @@ default_config = {
     # train setting
     'max_epoch': 10000,
     'max_iteration': 1000000,
-    "batch_size": 256,
+    "batch_size": 32,
     "model_converge_threshold": 10**-8,
-    "learning_rate": 1,
+    "learning_rate": 0.03,
+    "eval_iter_interval": 2,
+    "eval_epoch_interval": -1,
 
     # graph setting
     "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
@@ -62,6 +84,7 @@ parser.add_argument('--input_size', help='', default=default_config['input_size'
 parser.add_argument('--mask_tag', help='', default=default_config['mask_tag'], type=int)
 parser.add_argument('--reconstruct_input', help='', default=default_config['reconstruct_input'], type=str)
 parser.add_argument('--predict_label', help='', default=default_config['predict_label'], type=str)
+parser.add_argument('--time_offset', help='', default=default_config['time_offset'], type=int)
 
 # model config
 parser.add_argument('--mediate_size', help='', default=default_config['mediate_size'], type=int)
@@ -74,6 +97,8 @@ parser.add_argument('--max_iteration', help='', default=default_config['max_iter
 parser.add_argument('--learning_rate', help='', default=default_config['learning_rate'], type=float)
 parser.add_argument('--model_converge_threshold', help='',
                     default=default_config['model_converge_threshold'], type=float)
+parser.add_argument('--eval_iter_interval', help='', default=default_config['eval_iter_interval'], type=str)
+parser.add_argument('--eval_epoch_interval', help='', default=default_config['eval_epoch_interval'], type=str)
 
 # graph setting
 parser.add_argument('--constraint_type', help='', default=default_config['constraint_type'], type=str)
@@ -107,7 +132,12 @@ stream_format = logging.Formatter("%(asctime)s %(process)d %(module)s %(lineno)d
 # file output format
 console_logger.setFormatter(stream_format)
 logger.addHandler(console_logger)
-
+config_list = []
 for key in args:
-    logger.info("{}: {}".format(key, args[key]))
+    config_list.append([key, args[key]])
+config_list = sorted(config_list, key=lambda x: x[0])
+for item in config_list:
+    logger.info("{}: {}".format(item[0], item[1]))
+
+# other config
 
