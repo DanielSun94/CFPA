@@ -10,6 +10,7 @@ from util import get_data_loader
 
 def unit_test(argument):
     batch_first = True if argument['batch_first'] == 'True' else False
+    time_offset = argument['time_offset']
     data_path = argument['data_path']
     reconstruct_input = True if argument['reconstruct_input'] == 'True' else False
     batch_size = argument['batch_size']
@@ -29,7 +30,8 @@ def unit_test(argument):
         raise ValueError('')
 
     model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
-                                       hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size)
+                                       hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size,
+                                       time_offset=time_offset)
     dataset = SequentialVisitDataset(data)
     sampler = RandomSampler(dataset)
     dataloader = SequentialVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
@@ -38,7 +40,7 @@ def unit_test(argument):
     optimizer = Adam(model.parameters())
 
     for batch in dataloader:
-        predict, label_mask, label_feature, loss = model(batch)
+        _, __, ___, loss, ____, _____ = model(batch)
         constraint = model.constraint()
         loss = loss - 1 * constraint - 1/2 * constraint**2
         loss.backward()
@@ -68,11 +70,11 @@ class LagrangianMultiplierStateUpdater(object):
             with no_grad():
                 loss_list = []
                 for batch in self.data_loader:
-                    predict, label_mask, label_feature, loss = model(batch)
+                    predict_value_list, label_type_list, label_feature_list, loss, \
+                        reconstruct_loss_sum, predict_loss_sum = model(batch)
                     loss_list.append(loss)
-                loss_mean = mean(loss)
                 constraint = model.constraint()
-                final_loss = loss_mean + self.current_lambda * constraint + 1 / 2 * self.current_mu * constraint ** 2
+                final_loss = loss + self.current_lambda * constraint + 1 / 2 * self.current_mu * constraint ** 2
                 self.val_loss_list.append([iter_idx, final_loss])
 
         if iter_idx >= 2 * self.update_window and iter_idx % self.update_window == 0:
@@ -98,20 +100,20 @@ class LagrangianMultiplierStateUpdater(object):
         return self.current_lambda, self.current_mu
 
 
-def evaluation(epoch_idx, model, train_loader, val_loader):
+def evaluation(model, loader, loader_fraction, epoch_idx=None):
     with no_grad():
-        train_loss_list, val_loss_list = [], []
-        for batch in train_loader:
+        loss_list = []
+        for batch in loader:
             _, __, ___, loss = model(batch)
-            train_loss_list.append(loss)
-        for batch in val_loader:
-            _, __, ___, loss = model(batch)
-            val_loss_list.append(loss)
-        train_loss = mean(FloatTensor(train_loss_list)).item()
-        val_loss = mean(FloatTensor(val_loss_list)).item()
+            loss_list.append(loss)
+        loss = mean(FloatTensor(loss_list)).item()
         constraint = model.constraint().item()
-    logger.info('epoch: {:>4d}, train loss: {:>8.4f}, val loss: {:>8.4f}, constraint: {:>8.4f}'
-                .format(epoch_idx, train_loss, val_loss, constraint))
+    if epoch_idx is not None:
+        logger.info('epoch: {:>4d}, {:>6s} loss: {:>8.4f}, constraint: {:>8.4f}'
+                    .format(epoch_idx, loader_fraction, loss, constraint))
+    else:
+        logger.info('Final {} loss: {:>8.4f}, val loss: {:>8.4f}, constraint: {:>8.4f}'
+                    .format(loader_fraction, loader_fraction, loss, constraint))
 
 
 def train(train_dataloader, val_loader, max_epoch, max_iteration, model, multiplier_updater, optimizer, threshold):
@@ -128,11 +130,13 @@ def train(train_dataloader, val_loader, max_epoch, max_iteration, model, multipl
                 return model
 
             predict, label_mask, label_feature, loss = model(batch)
-
             loss = loss - lamb * constraint - 1 / 2 * mu * constraint ** 2
+
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        evaluation(epoch_idx, model, train_dataloader, val_loader)
+        evaluation(model, train_dataloader, 'train', epoch_idx)
+        evaluation(model, val_loader, 'valid', epoch_idx)
     return model
 
 
@@ -142,6 +146,7 @@ def framework(argument):
     data_path = argument['data_path']
     input_size = argument['input_size']
     mask_tag = argument['mask_tag']
+    time_offset = argument['time_offset']
     reconstruct_input = True if argument['reconstruct_input'] == 'True' else False
     predict_label = True if argument['predict_label'] == 'True' else False
 
@@ -151,7 +156,6 @@ def framework(argument):
 
     # data loader setting
     batch_first = True if argument['batch_first'] == 'True' else False
-
     minimum_observation = argument['minimum_observation']
 
     # model setting
@@ -176,16 +180,19 @@ def framework(argument):
                                       reconstruct_input, predict_label)
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
+    test_dataloader = dataloader_dict['test']
 
     model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
-                                       hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size)
+                                       hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size,
+                                       time_offset=time_offset)
     multiplier_updater = LagrangianMultiplierStateUpdater(
         init_lambda=init_lambda, init_mu=init_mu, gamma=gamma, eta=eta, update_window=update_window,
         dataloader=validation_dataloader, converge_threshold=lagrangian_converge_threshold)
     optimizer = Adam(model.parameters())
 
-    _ = train(train_dataloader, validation_dataloader, max_epoch, max_iteration, model, multiplier_updater,
-              optimizer, stop_threshold)
+    model = train(train_dataloader, validation_dataloader, max_epoch, max_iteration, model, multiplier_updater,
+                  optimizer, stop_threshold)
+    evaluation(model, test_dataloader, 'test')
     print('')
 
 

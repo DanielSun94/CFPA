@@ -8,22 +8,25 @@ import logging
 sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'data_preprocess'))
 t = datetime.datetime.now()
 time = ".".join([str(t.year), str(t.month), str(t.day), str(t.hour), str(t.minute), str(t.second)])
-data_folder = os.path.abspath('../resource/simulated_data/')
-dataset = 'spiral_2d'
+
+script_path = os.path.split(os.path.realpath(__file__))[0]
+sim_data_folder = os.path.join(script_path, 'resource', 'simulated_data')
+
+dataset = 'hao_false'
 
 if dataset == 'hao_true':
-    data_path = os.path.join(data_folder, 'sim_hao_model_hidden_True_group_lmci_personal_2_type_random.pkl')
+    data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_True_group_lmci_personal_2_type_random.pkl')
     time_offset = 50
     minimum_observation = 4
     input_size = 4
 elif dataset == 'hao_false':
-    data_path = os.path.join(data_folder, 'sim_hao_model_hidden_False_group_lmci_personal_2_type_random.pkl')
+    data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_False_group_lmci_personal_2_type_random.pkl')
     time_offset = 50
     minimum_observation = 4
     input_size = 5
 elif dataset == 'spiral_2d':
-    data_path = os.path.join(data_folder, 'spiral_2d.pkl')
-    minimum_observation = 102
+    data_path = os.path.join(sim_data_folder, 'spiral_2d.pkl')
+    minimum_observation = 100
     time_offset = 0
     input_size = 2
 else:
@@ -48,19 +51,20 @@ default_config = {
     # model config
     "mediate_size": 2,
     "hidden_size": 4,
+    'init_pooling': 'mean',
 
     # train setting
     'max_epoch': 10000,
     'max_iteration': 1000000,
-    "batch_size": 128,
+    "batch_size": 32,
     "model_converge_threshold": 10**-8,
     "learning_rate": 0.01,
-    "eval_iter_interval": 5,
+    "eval_iter_interval": 1,
     "eval_epoch_interval": -1,
 
     # graph setting
-    "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
-    'graph_type': 'ADMG',  # valid value: ADMG, DAG
+    "constraint_type": 'default',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
+    'graph_type': 'DAG',  # valid value: ADMG, DAG
 
     # augmented Lagrangian
     "init_lambda": 0,
@@ -89,6 +93,7 @@ parser.add_argument('--time_offset', help='', default=default_config['time_offse
 # model config
 parser.add_argument('--mediate_size', help='', default=default_config['mediate_size'], type=int)
 parser.add_argument('--hidden_size', help='', default=default_config['hidden_size'], type=int)
+parser.add_argument('--init_pooling', help='', default=default_config['init_pooling'], type=str)
 
 # training setting
 parser.add_argument('--batch_size', help='', default=default_config['batch_size'], type=int)

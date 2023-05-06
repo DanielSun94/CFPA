@@ -191,7 +191,13 @@ class SequentialVisitDataloader(DataLoader):
         valid_length_list = [len(item) for item in time_list]
         # for the randint and slice character, the prediction idx need to minus one, while the observation does not
         # 此处的min_obs_time从0起数
-        obs_idx_list = [random.randint(min_obs_time, length - 1) for length in valid_length_list]
+        obs_idx_list = []
+        for length in valid_length_list:
+            assert min_obs_time <= length
+            if length == min_obs_time:
+                obs_idx_list.append(length)
+            else:
+                obs_idx_list.append(random.randint(min_obs_time, length - 1))
 
         available_feature_list, available_time_list, predict_feature_list, predict_time_list = [], [], [], []
         for sample_time_list, obs_value_list, true_value_list, sample_obs_idx in \
@@ -209,7 +215,6 @@ class SequentialVisitDataloader(DataLoader):
         for pred_time, pred_feature, avail_time, ava_feature in \
                 zip(predict_time_list, predict_feature_list, available_time_list, available_feature_list):
             data.append([pred_time, pred_feature, avail_time, ava_feature])
-        data = sorted(data, key=lambda x: len(x[3]), reverse=True)
 
         input_feature_list, input_time_list, input_mask_list, label_feature_list, label_time_list, label_mask_list, \
             type_list, input_len_list, label_len_list = [], [], [], [], [], [], [], [], []
@@ -217,7 +222,7 @@ class SequentialVisitDataloader(DataLoader):
             pred_time, pred_feature, avail_time, avail_feature = item
             input_feature_mask = np.array(avail_feature) == missing_flag_num
             input_feature = (1 - input_feature_mask) * np.array(avail_feature)
-            input_feature_list.append(input_feature)
+            input_feature_list.append(FloatTensor(input_feature))
             input_time_list.append(deepcopy(avail_time))
             input_mask_list.append(input_feature_mask.tolist())
 
@@ -226,24 +231,31 @@ class SequentialVisitDataloader(DataLoader):
             pred_time = deepcopy(pred_time)
 
             if self.reconstruct_input and (not self.predict_label):
-                label_feature_list.append(deepcopy(input_feature))
-                label_time_list.append(deepcopy(avail_time))
-                label_mask_list.append(deepcopy(input_feature_mask))
+                label_feature_list.append(FloatTensor(deepcopy(input_feature)))
+                label_time_list.append(FloatTensor(deepcopy(avail_time)))
+                label_mask_list.append(FloatTensor(deepcopy(input_feature_mask)))
+                label_len_list.append(len(avail_time))
                 type_list.append(FloatTensor([1]*len(avail_time)))
             elif (not self.reconstruct_input) and self.predict_label:
-                label_feature_list.append(deepcopy(pred_feature))
-                label_time_list.append(deepcopy(pred_time))
-                label_mask_list.append(deepcopy(pred_feature_mask))
+                label_feature_list.append(FloatTensor(deepcopy(pred_feature)))
+                label_time_list.append(FloatTensor(deepcopy(pred_time)))
+                label_mask_list.append(FloatTensor(deepcopy(pred_feature_mask)))
+                label_len_list.append(len(pred_time))
                 type_list.append(FloatTensor([2] * len(pred_time)))
             elif self.reconstruct_input and self.predict_label:
-                label_feature = np.concatenate([input_feature, pred_feature], axis=0)
-                label_mask = np.concatenate([input_feature_mask, pred_feature_mask], axis=0)
-                label_time = deepcopy(avail_time)
-                label_time.extend(pred_time)
+                if len(pred_feature) == 0:
+                    label_feature = input_feature
+                    label_mask = input_feature_mask
+                    label_time = deepcopy(avail_time)
+                else:
+                    label_feature = np.concatenate([input_feature, pred_feature], axis=0)
+                    label_mask = np.concatenate([input_feature_mask, pred_feature_mask], axis=0)
+                    label_time = deepcopy(avail_time)
+                    label_time.extend(pred_time)
                 label_len_list.append(len(label_time))
-                label_feature_list.append(label_feature)
-                label_time_list.append(label_time)
-                label_mask_list.append(label_mask)
+                label_feature_list.append(FloatTensor(label_feature))
+                label_time_list.append(FloatTensor(label_time))
+                label_mask_list.append(FloatTensor(label_mask))
                 type_list.append(FloatTensor([1] * len(avail_time) + [2] * len(pred_time)))
             else:
                 raise ValueError('')

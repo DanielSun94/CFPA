@@ -1,8 +1,6 @@
 from torch import nn
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
-import argparse
 import torch.optim as optim
 from torchdiffeq import odeint_adjoint as odeint
 from default_config import args as argument
@@ -10,6 +8,9 @@ from util import get_data_loader
 
 
 def main():
+    loss_func_name = 'MSE'
+    print('loss_func_name: {}'.format(loss_func_name))
+    mse_loss_func = torch.nn.MSELoss()
     latent_dim = 4
     nhidden = 20
     rnn_nhidden = 25
@@ -32,7 +33,7 @@ def main():
     dec = Decoder(latent_dim, obs_dim, nhidden).to(device)
     params = (list(func.parameters()) + list(dec.parameters()) + list(rec.parameters()))
     optimizer = optim.Adam(params, lr=learning_rate)
-    loss_meter = RunningAverageMeter()
+    loss_meter_kl, loss_meter_mse = RunningAverageMeter(), RunningAverageMeter()
 
     dataloader_dict = get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
                                       reconstruct_input, predict_label)
@@ -47,36 +48,62 @@ def main():
                 label_time_list, label_mask_list, type_list, input_len_list, label_len_list = batch
             optimizer.zero_grad()
 
-            samp_trajs = torch.FloatTensor(np.array([item[:100, :] for item in input_feature_list]))
-            samp_ts = torch.FloatTensor(input_time_list[0][:100])
+            samp_trajs = torch.stack(input_feature_list, dim=0)
+            samp_ts = torch.FloatTensor(np.array(input_time_list[0]))
 
-            # backward in time to infer q(z_0)
+            # backward in time to infer q(z_0)f
             h = rec.initHidden().to(device)
             for t in reversed(range(samp_trajs.size(1))):
                 obs = samp_trajs[:, t, :]
                 out, h = rec.forward(obs, h)
-            qz0_mean, qz0_logvar = out[:, :latent_dim], out[:, latent_dim:]
-            epsilon = torch.randn(qz0_mean.size()).to(device)
-            z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
 
-            # forward in time and solve ode for reconstructions
-            pred_z = odeint(func, z0, samp_ts).permute(1, 0, 2)
-            pred_x = dec(pred_z)
+            if loss_func_name == 'MSE':
+                z0 = out[:, :latent_dim]
+                # forward in time and solve ode for reconstructions
+                pred_z = odeint(func, z0, samp_ts).permute(1, 0, 2)
+                pred_x = dec(pred_z)
 
-            # compute loss
-            noise_std_ = torch.zeros(pred_x.size()).to(device) + noise_std
-            noise_logvar = 2. * torch.log(noise_std_).to(device)
-            logpx = log_normal_pdf(
-                samp_trajs, pred_x, noise_logvar).sum(-1).sum(-1)
-            pz0_mean = pz0_logvar = torch.zeros(z0.size()).to(device)
-            analytic_kl = normal_kl(qz0_mean, qz0_logvar,
-                                    pz0_mean, pz0_logvar).sum(-1)
-            loss = torch.mean(-logpx + analytic_kl, dim=0)
-            loss.backward()
-            optimizer.step()
-            loss_meter.update(loss.item())
+                loss = mse_loss_func(pred_x, samp_trajs)
+                loss.backward()
+                optimizer.step()
+            else:
+                loss = kl_loss_func(out, latent_dim, samp_trajs, samp_ts, func, noise_std, dec, device)
+                loss.backward()
+                optimizer.step()
 
-            print('Iter: {}, running avg elbo: {:.4f}'.format(iter_idx, -loss_meter.avg))
+            with torch.no_grad():
+                kl_loss = kl_loss_func(out, latent_dim, samp_trajs, samp_ts, func, noise_std, dec, device)
+                loss_meter_kl.update(kl_loss.item())
+
+                z0 = out[:, :latent_dim]
+                pred_z = odeint(func, z0, samp_ts).permute(1, 0, 2)
+                pred_x = dec(pred_z)
+                mse_loss = mse_loss_func(pred_x, samp_trajs)
+                loss_meter_mse.update(mse_loss)
+
+            print('optimize loss type: {}. Iter: {}, running avg elbo: {:.4f}, MSE: {:.4f}'
+                  .format(loss_func_name, iter_idx, loss_meter_kl.avg, loss_meter_mse.avg))
+
+
+def kl_loss_func(out, latent_dim, samp_trajs, samp_ts, func, noise_std, dec, device):
+    qz0_mean, qz0_logvar = out[:, :latent_dim], out[:, latent_dim:]
+    epsilon = torch.randn(qz0_mean.size()).to(device)
+    z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
+
+    # forward in time and solve ode for reconstructions
+    pred_z = odeint(func, z0, samp_ts).permute(1, 0, 2)
+    pred_x = dec(pred_z)
+
+    # compute loss
+    noise_std_ = torch.zeros(pred_x.size()).to(device) + noise_std
+    noise_logvar = 2. * torch.log(noise_std_).to(device)
+    logpx = log_normal_pdf(
+        samp_trajs, pred_x, noise_logvar).sum(-1).sum(-1)
+    pz0_mean = pz0_logvar = torch.zeros(z0.size()).to(device)
+    analytic_kl = normal_kl(qz0_mean, qz0_logvar,
+                            pz0_mean, pz0_logvar).sum(-1)
+    loss = torch.mean(-logpx + analytic_kl, dim=0)
+    return loss
 
 
 class LatentODEfunc(nn.Module):

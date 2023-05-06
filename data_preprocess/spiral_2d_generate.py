@@ -7,7 +7,7 @@ import os
 
 def generate_spiral2d(nspiral=1000,
                       ntotal=500,
-                      nsample=105,
+                      nsample=100,
                       start=0.,
                       stop=1,  # approximately equal to 6pi
                       noise_std=.1,
@@ -19,7 +19,7 @@ def generate_spiral2d(nspiral=1000,
     Args:
       nspiral: number of spirals, i.e. batch dimension
       ntotal: total number of datapoints per spiral
-      nsample: number of sampled datapoints for model fitting per spiral， 只使用前N个数据
+      nsample: number of sampled datapoints for model fitting per spiral， 只使用其中起点随机挑选的连续N个数据
       start: spiral starting theta value
       stop: spiral ending theta value
       noise_std: observation noise standard deviation
@@ -83,9 +83,19 @@ def generate_spiral2d(nspiral=1000,
 
 
 def main():
-    _, train_traj, _, train_time = generate_spiral2d(nspiral=1024)
-    _, val_traj, _, val_time = generate_spiral2d(nspiral=128)
-    _, test_traj, _, test_time = generate_spiral2d(nspiral=128)
+    start = 0.
+    stop = 6 * np.pi
+    noise_std = .3
+    a = 0.
+    b = .3
+
+    # generate toy spiral data
+    _, train_traj, _, train_time = generate_spiral2d(nspiral=1024, start=start, stop=stop, noise_std=noise_std,
+                                                     a=a, b=b)
+    _, val_traj, _, val_time = generate_spiral2d(nspiral=128, start=start, stop=stop, noise_std=noise_std,
+                                                 a=a, b=b)
+    _, test_traj, _, test_time = generate_spiral2d(nspiral=128, start=start, stop=stop, noise_std=noise_std,
+                                                   a=a, b=b)
     train_dataset, val_dataset, test_dataset = [], [], []
     train_data_list, val_data_list, test_data_list = [], [], []
 
@@ -97,6 +107,7 @@ def main():
                 sample.append({'x': visit[0], 'y': visit[1], 'visit_time': time_point})
             dataset.append(sample)
 
+    # LatentODE的原始代码中，训练阶段是一个纯粹的无监督自编码器，不使用真值，因此此处obs和true用的是一样的数据
     for data, data_list in zip([train_dataset, val_dataset, test_dataset],
                                [train_data_list, val_data_list, test_data_list]):
         for item in data:

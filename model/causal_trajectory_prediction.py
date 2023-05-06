@@ -1,20 +1,21 @@
 if __name__ == '__main__':
     print('unit test in verification')
 import pickle
-from torch import FloatTensor, chunk, stack, squeeze, cat, transpose, eye, ones, normal, no_grad, matmul, abs, sum, \
-    trace, tanh, unsqueeze
+from default_config import logger
+from torch import FloatTensor, chunk, stack, squeeze, cat, transpose, eye, ones, no_grad, matmul, abs, sum, \
+    trace, tanh, unsqueeze, LongTensor
 from torch.linalg import matrix_exp
 from torch.nn.init import xavier_uniform_
 from torch.utils.data import RandomSampler
-from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, BCELoss
+from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss
 from data_preprocess.data_loader import SequentialVisitDataloader, SequentialVisitDataset
-from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
+from torch.nn.utils.rnn import pad_sequence
 from torchdiffeq import odeint_adjoint as odeint
 
 
 class CausalTrajectoryPrediction(Module):
     def __init__(self, graph_type: str, constraint: str, input_size: int, hidden_size: int, batch_first: bool,
-                 mediate_size: int):
+                 mediate_size: int, time_offset: int):
         super().__init__()
         assert graph_type == 'DAG' or graph_type == 'ADMG'
         assert (graph_type == 'DAG' and constraint == 'default') or (constraint in {'ancestral', 'bow-free', 'arid'})
@@ -22,7 +23,9 @@ class CausalTrajectoryPrediction(Module):
         self.hidden_size = hidden_size
         self.__graph_type = graph_type
         self.__constraint = constraint
+        self.time_offset = time_offset
 
+        self.mse_loss_func = MSELoss(reduction='none')
         # init value estimate module
         self.init_network = LSTM(input_size=input_size*2+1, hidden_size=hidden_size, batch_first=batch_first,
                                  bidirectional=True)
@@ -33,51 +36,51 @@ class CausalTrajectoryPrediction(Module):
 
     def forward(self, data):
         # data format [batch_size, visit_idx, feature_idx]
-        concat_input, _, _, _, label_feature_list, label_time_list, label_mask_list, _ = data
-        label_feature, label_mask = FloatTensor(label_feature_list), FloatTensor(label_mask_list)
+        concat_input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _ = data
+
         # estimate the init value
-        init_value = self.predict_init_value(concat_input)
+        init_value = self.predict_init_value(concat_input_list)
 
         # predict label
-        label_time_list = FloatTensor(label_time_list)
         init_value_list = chunk(init_value, init_value.shape[0], dim=0)
-        time_list = chunk(label_time_list, label_time_list.shape[0], dim=0)
-        predict_value = []
-        for init_value, time in zip(init_value_list, time_list):
-            predict_value.append(odeint(self.causal_derivative, init_value, time))
-        predict_value = squeeze(stack(predict_value))
+        predict_value_list = []
+        loss_sum, reconstruct_loss_sum, predict_loss_sum = FloatTensor(0), FloatTensor(0), FloatTensor(0)
+        for init_value, time, label, label_type, label_mask in\
+                zip(init_value_list, label_time_list, label_feature_list, label_type_list, label_mask_list):
+            time -= self.time_offset
+            predict_value = squeeze(odeint(self.causal_derivative, init_value, time))
+            predict_value_list.append(predict_value.detach())
 
-        # calculate loss
-        # 这里使用MSE应该没啥问题
-        # https://ai.stackexchange.com/questions/27341/in-variational-autoencoders-why-do-people-use-mse-for-the-loss
-        loss, mse_loss, bce_loss = [], MSELoss(reduction='none'), BCELoss(reduction='none')
-        predict_value = chunk(predict_value, predict_value.shape[1], dim=1)
-        label_feature = chunk(label_feature, len(label_feature[0]), dim=1)
-        for pred, label in zip(predict_value, label_feature):
-            loss.append(mse_loss(pred, label))
-        loss = transpose(squeeze(stack(loss, dim=0)), 0, 1)
-        loss = loss * (1-label_mask)
-        loss = loss.mean()
-        return predict_value, label_mask_list, label_feature_list, loss
+            # 注意，label mask和label type指的是不一样的，前者指代的是每个element是否丢失，后者指代每个element是否有效
+            sample_loss = self.mse_loss_func(predict_value, label) * (1-label_mask)
+
+            reconstruct_loss = sample_loss * unsqueeze(label_type == 1, dim=1)
+            reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
+            reconstruct_loss = reconstruct_loss.sum() / reconstruct_valid_ele_num
+            reconstruct_loss_sum += reconstruct_loss
+
+            predict_loss = sample_loss * unsqueeze(label_type == 2, dim=1)
+            predict_valid_ele_num = (predict_loss != 0).sum()
+            predict_loss = predict_loss.sum() / predict_valid_ele_num
+            predict_loss_sum += predict_loss
+
+        predict_loss_sum = predict_loss_sum / len(init_value)
+        reconstruct_loss_sum = reconstruct_loss_sum / len(init_value)
+        loss_sum = (reconstruct_loss_sum + predict_loss_sum) / 2
+        return predict_value_list, label_type_list, label_feature_list, loss_sum, \
+            reconstruct_loss_sum.detach(), predict_loss_sum.detach()
 
     def predict_init_value(self, concat_input):
-        length = FloatTensor([len(item) for item in concat_input])
+        length = LongTensor([len(item) for item in concat_input])
         concat_input = [FloatTensor(item) for item in concat_input]
         data = pad_sequence(concat_input, batch_first=True, padding_value=0).float()
-        packed_data = pack_padded_sequence(data, length, batch_first=True, enforce_sorted=False)
-        init_seq, _ = self.init_network(packed_data)
-        out_pad, out_len = pad_packed_sequence(init_seq, batch_first=True)
+        init_seq, _ = self.init_network(data)
 
         # 根据网上的相关资料，forward pass的index是前一半；这个slice的策略尽管我没查到，但是在numpy上试了试，似乎是对的
-        forward = out_pad[range(len(out_pad)), out_len-1, :self.hidden_size]
-        backward = out_pad[:, 0, self.hidden_size:]
+        forward = init_seq[range(len(length)), length-1, :self.hidden_size]
+        backward = init_seq[:, 0, self.hidden_size:]
         hidden_init = (forward + backward) / 2
-        hidden_init = chunk(hidden_init, hidden_init.shape[0], dim=0)
-        value_init_list = []
-        for item in hidden_init:
-            value_init_sample = self.projection_net(item)
-            value_init_list.append(value_init_sample)
-        value_init = squeeze(stack(value_init_list, dim=0))
+        value_init = self.projection_net(hidden_init)
         return value_init
 
     def inference(self, concat_input, time):
@@ -94,7 +97,6 @@ class CausalTrajectoryPrediction(Module):
 
     def constraint(self):
         return self.causal_derivative.graph_constraint()
-
 
     def generate_graph(self):
         # To Be Done
@@ -115,40 +117,28 @@ class CausalDerivative(Module):
         self.input_size = input_size
 
         self.directed_net_list = []
-        self.self_excite_net_list = []
         self.fuse_net_list = []
         self.bi_directed_net_list = None
         if graph_type == 'DAG':
             for i in range(input_size):
                 net_1 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
                                    Linear(hidden_size, mediate_size, bias=False), ReLU())
-                net_2 = Sequential(Linear(input_size, 2), ReLU(), Linear(2, 1), ReLU())
                 self.directed_net_list.append(net_1)
-                self.self_excite_net_list.append(net_2)
-                net_4 = Sequential(Linear(mediate_size + 1, hidden_size), ReLU(), Linear(hidden_size, 2), ReLU())
-                self.fuse_net_list.append(net_4)
-
-                net_1.apply(self.init_weights)
-                net_2.apply(self.init_weights)
-                net_4.apply(self.init_weights)
+                net_3 = Sequential(Linear(mediate_size + input_size, hidden_size), ReLU(),
+                                   Linear(hidden_size, 1), ReLU())
+                self.fuse_net_list.append(net_3)
         elif graph_type == 'ADMG':
             self.bi_directed_net_list = []
             for i in range(input_size):
                 net_1 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
                                    Linear(hidden_size, mediate_size, bias=False), ReLU())
-                net_2 = Sequential(Linear(input_size, 2), ReLU(), Linear(2, 1), ReLU())
-                net_3 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
+                net_2 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
                                    Linear(hidden_size, mediate_size, bias=False), ReLU())
                 self.directed_net_list.append(net_1)
-                self.self_excite_net_list.append(net_2)
-                self.bi_directed_net_list.append(net_3)
-                net_4 = Sequential(Linear(2 * mediate_size + 1, hidden_size), ReLU(), Linear(hidden_size, 2), ReLU())
-                self.fuse_net_list.append(net_4)
-
-                net_1.apply(self.init_weights)
-                net_2.apply(self.init_weights)
-                net_3.apply(self.init_weights)
-                net_4.apply(self.init_weights)
+                self.bi_directed_net_list.append(net_2)
+                net_3 = Sequential(Linear(2 * mediate_size + input_size, hidden_size),
+                                   ReLU(), Linear(hidden_size, 1), ReLU())
+                self.fuse_net_list.append(net_3)
         else:
             raise ValueError('')
 
@@ -170,37 +160,26 @@ class CausalDerivative(Module):
         if self.graph_type == 'DAG':
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
-                net_2 = self.self_excite_net_list[i]
-                net_4 = self.fuse_net_list[i]
+                net_3 = self.fuse_net_list[i]
                 input_1 = inputs_1_list[i]
                 input_2 = inputs_2_list[i]
 
                 representation_1 = net_1(input_1)
-                representation_2 = net_2(input_2)
-                representation_3 = cat([representation_1, representation_2], dim=1)
-                predict = net_4(representation_3)
-
-                sample = normal(0, 1, [1])
-                predict_mean, predict_std = chunk(predict, 2, dim=1)
-                derivative = predict_mean + sample * predict_std
+                representation_3 = cat([representation_1, input_2], dim=1)
+                derivative = net_3(representation_3)
                 output_feature.append(derivative)
         elif self.graph_type == 'ADMG':
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
-                net_2 = self.self_excite_net_list[i]
-                net_3 = self.bi_directed_net_list[i]
-                net_4 = self.fuse_net_list[i]
+                net_2 = self.bi_directed_net_list[i]
+                net_3 = self.fuse_net_list[i]
                 input_1 = inputs_1_list[i]
                 input_2 = inputs_2_list[i]
 
                 representation_1 = net_1(input_1)
-                representation_2 = net_3(input_1)
-                representation_3 = net_2(input_2)
-                representation_4 = cat([representation_1, representation_2, representation_3], dim=1)
-                predict = net_4(representation_4)
-                sample = normal(0, 1, [1])
-                predict_mean, predict_std = chunk(predict, 2, dim=1)
-                derivative = predict_mean + sample * predict_std
+                representation_2 = net_2(input_1)
+                representation_3 = cat([representation_1, representation_2, input_2], dim=1)
+                derivative = net_3(representation_3)
                 output_feature.append(derivative)
         else:
             raise ValueError('')
@@ -288,20 +267,20 @@ def unit_test(argument):
     predict_label = True if argument['predict_label'] == 'True' else False
     graph_type = argument['graph_type']
     constraint = argument['constraint_type']
+    time_offset = argument['time_offset']
 
     model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
-                                       hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size)
+                                       hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size,
+                                       time_offset=time_offset)
     _ = model.causal_derivative.graph_constraint()
-    if graph_type == 'DAG':
-        data = pickle.load(open(data_path, 'rb'))['data']['train']
-    elif graph_type == 'ADMG':
-        data = pickle.load(open(data_path, 'rb'))['data']['train']
-    else:
-        raise ValueError('')
+    data = pickle.load(open(data_path, 'rb'))['data']['train']
     dataset = SequentialVisitDataset(data)
     sampler = RandomSampler(dataset)
     dataloader = SequentialVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
                                            minimum_observation=minimum_observation,
                                            reconstruct_input=reconstruct_input, predict_label=predict_label)
+    idx = 0
     for batch in dataloader:
+        logger.info('index: {}'.format(idx))
+        idx += 1
         __ = model(batch)
