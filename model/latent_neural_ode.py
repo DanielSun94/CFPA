@@ -27,7 +27,6 @@ def main():
     minimum_observation = argument['minimum_observation']
     batch_size = 1000
 
-
     func = LatentODEfunc(latent_dim, nhidden).to(device)
     rec = RecognitionRNN(latent_dim, obs_dim, rnn_nhidden, batch_size).to(device)
     dec = Decoder(latent_dim, obs_dim, nhidden).to(device)

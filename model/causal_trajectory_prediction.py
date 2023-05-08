@@ -5,7 +5,6 @@ from default_config import logger
 from torch import FloatTensor, chunk, stack, squeeze, cat, transpose, eye, ones, no_grad, matmul, abs, sum, \
     trace, tanh, unsqueeze, LongTensor
 from torch.linalg import matrix_exp
-from torch.nn.init import xavier_uniform_
 from torch.utils.data import RandomSampler
 from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss
 from data_preprocess.data_loader import SequentialVisitDataloader, SequentialVisitDataset
@@ -15,15 +14,16 @@ from torchdiffeq import odeint_adjoint as odeint
 
 class CausalTrajectoryPrediction(Module):
     def __init__(self, graph_type: str, constraint: str, input_size: int, hidden_size: int, batch_first: bool,
-                 mediate_size: int, time_offset: int):
+                 mediate_size: int, time_offset: int, clamp_edge_threshold: float):
         super().__init__()
         assert graph_type == 'DAG' or graph_type == 'ADMG'
         assert (graph_type == 'DAG' and constraint == 'default') or (constraint in {'ancestral', 'bow-free', 'arid'})
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.__graph_type = graph_type
-        self.__constraint = constraint
+        self.graph_type = graph_type
+        self.constraint = constraint
         self.time_offset = time_offset
+        self.clamp_edge_threshold = clamp_edge_threshold
 
         self.mse_loss_func = MSELoss(reduction='none')
         # init value estimate module
@@ -44,7 +44,7 @@ class CausalTrajectoryPrediction(Module):
         # predict label
         init_value_list = chunk(init_value, init_value.shape[0], dim=0)
         predict_value_list = []
-        loss_sum, reconstruct_loss_sum, predict_loss_sum = FloatTensor(0), FloatTensor(0), FloatTensor(0)
+        loss_sum, reconstruct_loss_sum, predict_loss_sum = 0.0, 0.0, 0.0
         for init_value, time, label, label_type, label_mask in\
                 zip(init_value_list, label_time_list, label_feature_list, label_type_list, label_mask_list):
             time -= self.time_offset
@@ -64,8 +64,8 @@ class CausalTrajectoryPrediction(Module):
             predict_loss = predict_loss.sum() / predict_valid_ele_num
             predict_loss_sum += predict_loss
 
-        predict_loss_sum = predict_loss_sum / len(init_value)
-        reconstruct_loss_sum = reconstruct_loss_sum / len(init_value)
+        predict_loss_sum = predict_loss_sum / len(init_value_list)
+        reconstruct_loss_sum = reconstruct_loss_sum / len(init_value_list)
         loss_sum = (reconstruct_loss_sum + predict_loss_sum) / 2
         return predict_value_list, label_type_list, label_feature_list, loss_sum, \
             reconstruct_loss_sum.detach(), predict_loss_sum.detach()
@@ -95,17 +95,15 @@ class CausalTrajectoryPrediction(Module):
             predict_value = squeeze(stack(predict_value))
         return predict_value
 
-    def constraint(self):
+    def calculate_constraint(self):
         return self.causal_derivative.graph_constraint()
+
+    def clamp_edge(self):
+        self.causal_derivative.clamp_edge(self.clamp_edge_threshold)
 
     def generate_graph(self):
         # To Be Done
         raise NotImplementedError
-
-    @staticmethod
-    def init_weights(m):
-        if isinstance(m, Linear):
-            xavier_uniform_(m.weight)
 
 
 class CausalDerivative(Module):
@@ -127,6 +125,8 @@ class CausalDerivative(Module):
                 net_3 = Sequential(Linear(mediate_size + input_size, hidden_size), ReLU(),
                                    Linear(hidden_size, 1), ReLU())
                 self.fuse_net_list.append(net_3)
+
+            self.adjacency = {'dag': ones([input_size, input_size]) - eye(input_size)}
         elif graph_type == 'ADMG':
             self.bi_directed_net_list = []
             for i in range(input_size):
@@ -139,25 +139,48 @@ class CausalDerivative(Module):
                 net_3 = Sequential(Linear(2 * mediate_size + input_size, hidden_size),
                                    ReLU(), Linear(hidden_size, 1), ReLU())
                 self.fuse_net_list.append(net_3)
+            self.adjacency = {
+                'dag': ones([input_size, input_size]) - eye(input_size),
+                'bi': ones([input_size, input_size]) - eye(input_size)
+            }
         else:
             raise ValueError('')
 
+    def clamp_edge(self, clamp_edge_threshold):
+        with no_grad():
+            if self.graph_type == 'DAG':
+                dag_net_list = self.directed_net_list
+                connect_mat = self.calculate_connectivity_mat(dag_net_list)
+                keep_edge = connect_mat > clamp_edge_threshold
+                self.adjacency['dag'] *= keep_edge
+            elif self.graph_type == 'ADMG':
+                dag_net_list = self.directed_net_list
+                dag_connect_mat = self.calculate_connectivity_mat(dag_net_list)
+                dag_keep_edge = dag_connect_mat > clamp_edge_threshold
+                self.adjacency['dag'] *= dag_keep_edge
+                bi_net_list = self.bi_directed_net_list
+                bi_connect_mat = self.calculate_connectivity_mat(bi_net_list)
+                bi_keep_edge = bi_connect_mat > clamp_edge_threshold
+                self.adjacency['bi'] *= bi_keep_edge
+            else:
+                raise ValueError('')
+
     def forward(self, _, inputs):
         # designed for this format
-        assert inputs.shape[1] == self.input_size
-        assert inputs.shape[0] == 1 and len(inputs.shape) == 2
+        assert inputs.shape[1] == self.input_size and inputs.shape[0] == 1 and len(inputs.shape) == 2
         inputs = inputs.repeat(inputs.shape[1], 1)
         assert inputs.shape[0] == inputs.shape[1] and len(inputs.shape) == 2
 
-        diag_mat = eye(inputs.shape[0])
-
-        inputs_1 = inputs * (ones([inputs.shape[0], inputs.shape[0]]) - diag_mat)
-        inputs_2 = inputs * diag_mat
-        inputs_1_list = chunk(inputs_1, inputs.shape[0], dim=0)
-        inputs_2_list = chunk(inputs_2, inputs.shape[0], dim=0)
+        # input_1 避免自环，input_2考虑自环
+        inputs_1 = inputs * (ones([inputs.shape[0], inputs.shape[0]]) - eye(inputs.shape[0]))
+        inputs_2 = inputs * eye(inputs.shape[0])
 
         output_feature = []
         if self.graph_type == 'DAG':
+            adjacency = self.adjacency['dag']
+            inputs_1 = inputs_1 * adjacency
+            inputs_1_list = chunk(inputs_1, inputs.shape[0], dim=0)
+            inputs_2_list = chunk(inputs_2, inputs.shape[0], dim=0)
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
                 net_3 = self.fuse_net_list[i]
@@ -169,15 +192,23 @@ class CausalDerivative(Module):
                 derivative = net_3(representation_3)
                 output_feature.append(derivative)
         elif self.graph_type == 'ADMG':
+            dag = self.adjacency['dag']
+            bi = self.adjacency['bi']
+            inputs_1_dag = inputs_1 * dag
+            inputs_1_bi = inputs_1 * bi
+            inputs_1_dag_list = chunk(inputs_1_dag, inputs.shape[0], dim=0)
+            inputs_1_bi_list = chunk(inputs_1_bi, inputs.shape[0], dim=0)
+            inputs_2_list = chunk(inputs_2, inputs.shape[0], dim=0)
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
                 net_2 = self.bi_directed_net_list[i]
                 net_3 = self.fuse_net_list[i]
-                input_1 = inputs_1_list[i]
+                input_1_dag = inputs_1_dag_list[i]
+                input_1_bi = inputs_1_bi_list[i]
                 input_2 = inputs_2_list[i]
 
-                representation_1 = net_1(input_1)
-                representation_2 = net_2(input_1)
+                representation_1 = net_1(input_1_dag)
+                representation_2 = net_2(input_1_bi)
                 representation_3 = cat([representation_1, representation_2, input_2], dim=1)
                 derivative = net_3(representation_3)
                 output_feature.append(derivative)
@@ -191,13 +222,17 @@ class CausalDerivative(Module):
         if self.graph_type == 'DAG':
             dag_net_list = self.directed_net_list
             directed_connect_mat = self.calculate_connectivity_mat(dag_net_list)
+            # 注意，此处不可以用*=，因为*=是inplace operation
+            directed_connect_mat = directed_connect_mat * directed_connect_mat
             constraint = trace(matrix_exp(directed_connect_mat)) - self.input_size
             assert constraint > 0
         elif self.graph_type == 'ADMG':
             dag_net_list = self.directed_net_list
             bi_net_list = self.bi_directed_net_list
             directed_connect_mat = self.calculate_connectivity_mat(dag_net_list)
+            directed_connect_mat *= directed_connect_mat
             bi_connect_mat = self.calculate_connectivity_mat(bi_net_list)
+            bi_connect_mat *= bi_connect_mat
 
             dag_constraint = trace(matrix_exp(directed_connect_mat)) - self.input_size
             if self.constraint_type == 'ancestral':
@@ -235,7 +270,9 @@ class CausalDerivative(Module):
     @staticmethod
     def calculate_connectivity_mat(module_list):
         # Note, C_ij means the i predicts the j
-        # 此处注意符合正确性
+        # 此处的正确性已经经过校验
+        # 注意Linear是算的xA^T，而此处是A直接参与计算，相关的形式和arXiv 1906.02226应该是完全一致的
+        # 最终的C_ij直接就是i预测j的强度，无需进一步的转置
         connect_mat = []
         for i in range(len(module_list)):
             prod = eye(len(module_list))
@@ -245,13 +282,7 @@ class CausalDerivative(Module):
                 prod = matmul(para_mat, prod)
             connect_mat.append(prod)
         connect_mat = sum(stack(connect_mat, dim=0), dim=1)
-        connect_mat = transpose(connect_mat, 0, 1)
         return connect_mat
-
-    @staticmethod
-    def init_weights(m):
-        if isinstance(m, Linear):
-            xavier_uniform_(m.weight)
 
 
 def unit_test(argument):
@@ -268,10 +299,11 @@ def unit_test(argument):
     graph_type = argument['graph_type']
     constraint = argument['constraint_type']
     time_offset = argument['time_offset']
+    clamp_edge_threshold = argument["clamp_edge_threshold"]
 
     model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
                                        hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size,
-                                       time_offset=time_offset)
+                                       time_offset=time_offset, clamp_edge_threshold=clamp_edge_threshold)
     _ = model.causal_derivative.graph_constraint()
     data = pickle.load(open(data_path, 'rb'))['data']['train']
     dataset = SequentialVisitDataset(data)

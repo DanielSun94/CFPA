@@ -58,8 +58,9 @@ default_config = {
     'max_iteration': 1000000,
     "batch_size": 32,
     "model_converge_threshold": 10**-8,
+    "clamp_edge_threshold": 10**-4,
     "learning_rate": 0.01,
-    "eval_iter_interval": 1,
+    "eval_iter_interval": 30,
     "eval_epoch_interval": -1,
 
     # graph setting
@@ -98,6 +99,7 @@ parser.add_argument('--init_pooling', help='', default=default_config['init_pool
 # training setting
 parser.add_argument('--batch_size', help='', default=default_config['batch_size'], type=int)
 parser.add_argument('--max_epoch', help='', default=default_config['max_epoch'], type=int)
+parser.add_argument('--clamp_edge_threshold', help='', default=default_config['clamp_edge_threshold'], type=float)
 parser.add_argument('--max_iteration', help='', default=default_config['max_iteration'], type=int)
 parser.add_argument('--learning_rate', help='', default=default_config['learning_rate'], type=float)
 parser.add_argument('--model_converge_threshold', help='',
