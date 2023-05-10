@@ -3,8 +3,6 @@ import pickle
 import random
 import numpy as np
 from copy import deepcopy
-
-import torch
 from torch import FloatTensor
 from torch.utils.data import Dataset, RandomSampler, DataLoader
 from default_config import missing_flag_num
@@ -167,13 +165,15 @@ class SingleVisitDataloader(DataLoader):
 
 
 class SequentialVisitDataloader(DataLoader):
-    def __init__(self, dataset, batch_size, sampler, minimum_observation, mask, reconstruct_input, predict_label):
+    def __init__(self, dataset, batch_size, sampler, minimum_observation, mask, reconstruct_input, predict_label,
+                 device):
         assert batch_size > 1
         self.real_batch_size = batch_size
         self.mask = mask
         self.reconstruct_input = reconstruct_input
         self.predict_label = predict_label
         self.minimum_observation = minimum_observation
+        self.device = device
         super().__init__(dataset, batch_size=batch_size, sampler=sampler, collate_fn=self.collate_fn)
 
     def reorganize_batch_data(self, data):
@@ -223,8 +223,8 @@ class SequentialVisitDataloader(DataLoader):
             input_feature_mask = np.array(avail_feature) == missing_flag_num
             input_feature = (1 - input_feature_mask) * np.array(avail_feature)
             input_feature_list.append(FloatTensor(input_feature))
-            input_time_list.append(deepcopy(avail_time))
-            input_mask_list.append(input_feature_mask.tolist())
+            input_time_list.append(FloatTensor(np.array(deepcopy(avail_time))))
+            input_mask_list.append(FloatTensor(input_feature_mask))
 
             pred_feature_mask = np.array(pred_feature) == missing_flag_num
             pred_feature = (1 - pred_feature_mask) * np.array(pred_feature)
@@ -274,6 +274,14 @@ class SequentialVisitDataloader(DataLoader):
             input_len_list.append(len(concat_sample))
             concat_input.append(FloatTensor(concat_sample))
 
+        concat_input = [item.to(self.device) for item in concat_input]
+        input_feature_list = [item.to(self.device) for item in input_feature_list]
+        input_time_list = [item.to(self.device) for item in input_time_list]
+        input_mask_list = [item.to(self.device) for item in input_mask_list]
+        label_feature_list = [item.to(self.device) for item in label_feature_list]
+        label_time_list = [item.to(self.device) for item in label_time_list]
+        label_mask_list = [item.to(self.device) for item in label_mask_list]
+        type_list = [item.to(self.device) for item in type_list]
         return concat_input, input_feature_list, input_time_list, input_mask_list, label_feature_list,\
             label_time_list, label_mask_list, type_list, input_len_list, label_len_list
 
@@ -289,6 +297,7 @@ def main():
     true_data_path = os.path.join(data_folder, 'sim_data_hidden_True_group_lmci_personal_0_type_random.pkl')
     hidden_false_data = pickle.load(open(false_data_path, 'rb'))
     hidden_true_data = pickle.load(open(true_data_path, 'rb'))
+    device = 'cpu'
 
     for data in [hidden_true_data['data'], hidden_false_data['data']]:
         for key in data:
@@ -306,7 +315,7 @@ def main():
                 sampler = RandomSampler(dataset)
                 dataloader = SequentialVisitDataloader(
                     dataset, batch_size, sampler=sampler, mask=mask_tag, minimum_observation=min_obs,
-                    reconstruct_input=reconstruct_input, predict_label=predict_label)
+                    reconstruct_input=reconstruct_input, predict_label=predict_label, device=device)
                 for _ in dataloader:
                     print('')
 

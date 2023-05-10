@@ -4,7 +4,7 @@ import pickle
 
 
 def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation, reconstruct_input,
-                    predict_label):
+                    predict_label, device):
     # to be revised in future for multi dataset
     logger.info('dataset name: {}'.format(dataset_name))
     dataset_dict = {}
@@ -15,7 +15,7 @@ def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_obser
         dataset = SequentialVisitDataset(dataset_dict[split])
         sampler = RandomSampler(dataset)
         dataloader = SequentialVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
-                                               minimum_observation=minimum_observation,
+                                               minimum_observation=minimum_observation, device=device,
                                                reconstruct_input=reconstruct_input, predict_label=predict_label)
         dataloader_dict[split] = dataloader
     return dataloader_dict
