@@ -4,10 +4,6 @@ import sys
 import datetime
 import logging
 
-
-dataset = 'hao_false'
-
-device = 'cuda:7'
 sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'data_preprocess'))
 t = datetime.datetime.now()
 time = ".".join([str(t.year), str(t.month), str(t.day), str(t.hour), str(t.minute), str(t.second)])
@@ -15,6 +11,12 @@ script_path = os.path.split(os.path.realpath(__file__))[0]
 sim_data_folder = os.path.join(script_path, 'resource', 'simulated_data')
 adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_folder')
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
+
+dataset = 'hao_false'
+device = 'cuda:5'
+model_ckpt_name = 'CPA.hao_false.DAG.default.20230407075131.0.1.model'
+model_ckpt_path = os.path.join(ckpt_folder, model_ckpt_name)
+
 if not os.path.exists(sim_data_folder):
     os.makedirs(sim_data_folder)
 if not os.path.exists(adjacency_mat_folder):
@@ -72,7 +74,7 @@ default_config = {
     "eval_iter_interval": 20,
     "eval_epoch_interval": -1,
     "device": device,
-    "clamp_edge_flag": "False",
+    "clamp_edge_flag": "True",
     'adjacency_mat_folder': adjacency_mat_folder,
     'save_iter_interval': 100,
 
@@ -80,14 +82,31 @@ default_config = {
     "constraint_type": 'default',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
     'graph_type': 'DAG',  # valid value: ADMG, DAG
 
-    # augmented Lagrangian
-    "init_lambda": 0,
-    "init_mu": 10**-3,
-    "eta": 10,
-    'gamma': 0.9,
-    'stop_threshold': 10**-8,
-    'update_window': 50,
-    'lagrangian_converge_threshold': 10**-2
+    # treatment effect analysis
+    'model_ckpt_path': model_ckpt_path,
+    'treatment_feature': 'a',
+    'treatment_time': -2,
+    'treatment_value': -2,
+    'oracle_graph_flag': 'True',
+
+
+    # augmented Lagrangian predict phase
+    "init_lambda_predict": 0,
+    "init_mu_predict": 10**-3,
+    "eta_predict": 10,
+    'gamma_predict': 0.9,
+    'stop_threshold_predict': 10**-8,
+    'update_window_predict': 50,
+    'lagrangian_converge_threshold_predict': 10**-2,
+
+    # augmented Lagrangian treatment effect analysis phase
+    "init_lambda_treatment": 0,
+    "init_mu_treatment": 10**-3,
+    "eta_treatment": 10,
+    'gamma_treatment': 0.9,
+    'stop_threshold_treatment': 10**-8,
+    'update_window_treatment': 50,
+    'lagrangian_converge_threshold_treatment': 10**-2,
 }
 
 parser = argparse.ArgumentParser()
@@ -130,15 +149,32 @@ parser.add_argument('--save_iter_interval', help='', default=default_config['sav
 parser.add_argument('--constraint_type', help='', default=default_config['constraint_type'], type=str)
 parser.add_argument('--graph_type', help='', default=default_config['graph_type'], type=str)
 
-# augmented Lagrangian
-parser.add_argument('--init_lambda', help='', default=default_config['init_lambda'], type=float)
-parser.add_argument('--init_mu', help='', default=default_config['init_mu'], type=float)
-parser.add_argument('--eta', help='', default=default_config['eta'], type=float)
-parser.add_argument('--gamma', help='', default=default_config['gamma'], type=float)
-parser.add_argument('--stop_threshold', help='', default=default_config['stop_threshold'], type=float)
-parser.add_argument('--update_window', help='', default=default_config['update_window'], type=float)
-parser.add_argument('--lagrangian_converge_threshold', help='',
-                    default=default_config['lagrangian_converge_threshold'], type=float)
+# augmented Lagrangian predict
+parser.add_argument('--init_lambda_predict', help='', default=default_config['init_lambda_predict'], type=float)
+parser.add_argument('--init_mu_predict', help='', default=default_config['init_mu_predict'], type=float)
+parser.add_argument('--eta_predict', help='', default=default_config['eta_predict'], type=float)
+parser.add_argument('--gamma_predict', help='', default=default_config['gamma_predict'], type=float)
+parser.add_argument('--stop_threshold_predict', help='', default=default_config['stop_threshold_predict'], type=float)
+parser.add_argument('--update_window_predict', help='', default=default_config['update_window_predict'], type=float)
+parser.add_argument('--lagrangian_converge_threshold_predict', help='',
+                    default=default_config['lagrangian_converge_threshold_predict'], type=float)
+
+# augmented Lagrangian treatment analysis
+parser.add_argument('--init_lambda_treatment', help='', default=default_config['init_lambda_treatment'], type=float)
+parser.add_argument('--init_mu_treatment', help='', default=default_config['init_mu_treatment'], type=float)
+parser.add_argument('--eta_treatment', help='', default=default_config['eta_treatment'], type=float)
+parser.add_argument('--gamma_treatment', help='', default=default_config['gamma_treatment'], type=float)
+parser.add_argument('--stop_threshold_treatment', help='', default=default_config['stop_threshold_treatment'], type=float)
+parser.add_argument('--update_window_treatment', help='', default=default_config['update_window_treatment'], type=float)
+parser.add_argument('--lagrangian_converge_threshold_treatment', help='',
+                    default=default_config['lagrangian_converge_threshold_treatment'], type=float)
+
+# treatment analysis
+parser.add_argument('--model_ckpt_path', help='', default=default_config['model_ckpt_path'], type=str)
+parser.add_argument('--treatment_feature', help='', default=default_config['treatment_feature'], type=str)
+parser.add_argument('--treatment_time', help='', default=default_config['treatment_time'], type=float)
+parser.add_argument('--treatment_value', help='', default=default_config['treatment_value'], type=float)
+parser.add_argument('--oracle_graph_flag', help='', default=default_config['oracle_graph_flag'], type=str)
 
 args = vars(parser.parse_args())
 

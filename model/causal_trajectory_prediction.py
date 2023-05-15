@@ -7,7 +7,7 @@ from torch import FloatTensor, chunk, stack, squeeze, cat, transpose, eye, ones,
     trace, tanh, unsqueeze, LongTensor, randn
 from torch.linalg import matrix_exp
 from torch.utils.data import RandomSampler
-from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, Parameter
+from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList
 from data_preprocess.data_loader import SequentialVisitDataloader, SequentialVisitDataset
 from torch.nn.utils.rnn import pad_sequence
 from torchdiffeq import odeint_adjoint as odeint
@@ -82,8 +82,16 @@ class CausalTrajectoryPrediction(Module):
         predict_loss_sum = predict_loss_sum / len(init_value_list)
         reconstruct_loss_sum = reconstruct_loss_sum / len(init_value_list)
         loss_sum = (reconstruct_loss_sum + predict_loss_sum) / 2
-        return predict_value_list, label_type_list, label_feature_list, loss_sum, \
-            reconstruct_loss_sum.detach(), predict_loss_sum.detach()
+
+        output_dict = {
+            'predict_value_list': predict_value_list,
+            'label_type_list': label_type_list,
+            'label_feature_list': label_feature_list,
+            'loss': loss_sum,
+            'reconstruct_loss': reconstruct_loss_sum,
+            'predict_loss': predict_loss_sum.detach()
+        }
+        return output_dict
 
     def predict_init_value(self, concat_input):
         length = LongTensor([len(item) for item in concat_input]).to(self.device)

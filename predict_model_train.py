@@ -1,13 +1,9 @@
-import os.path
-from datetime import datetime
 from default_config import args, logger, ckpt_folder, adjacency_mat_folder
 import pickle
-import numpy as np
-from torch import no_grad, mean, FloatTensor, save
 from data_preprocess.data_loader import SequentialVisitDataloader, SequentialVisitDataset, RandomSampler
 from model.causal_trajectory_prediction import CausalTrajectoryPrediction
 from torch.optim import Adam
-from util import get_data_loader
+from util import get_data_loader, save_model, LagrangianMultiplierStateUpdater, predict_performance_evaluation
 
 
 def unit_test(argument):
@@ -43,82 +39,14 @@ def unit_test(argument):
     optimizer = Adam(model.parameters())
 
     for batch in dataloader:
-        _, __, ___, loss, ____, _____ = model(batch)
+        output_dict = model(batch)
+        loss = output_dict['loss']
         constraint = model.calculate_constraint()
         loss = loss - 1 * constraint - 1/2 * constraint**2
         loss.backward()
         optimizer.step()
     logger.info('success')
 
-
-class LagrangianMultiplierStateUpdater(object):
-    def __init__(self, init_lambda, init_mu, gamma, eta, converge_threshold, update_window, dataloader):
-        self.init_lambda = init_lambda
-        self.current_lambda = init_lambda
-        self.init_mu = init_mu
-        self.current_mu = init_mu
-        self.gamma = gamma
-        self.eta = eta
-        self.converge_threshold = converge_threshold
-        self.update_window = update_window
-        self.data_loader = dataloader
-        self.val_loss_list = []
-        self.constraint_list = []
-        # 也没什么道理，就是不想update的太频繁（正常应该在100左右）
-        assert update_window > 5
-
-    def update(self, model, iter_idx):
-        with no_grad():
-            constraint = model.calculate_constraint()
-            assert iter_idx > 0
-            if iter_idx == 1 or (iter_idx > 1 and iter_idx % self.update_window == 0):
-                # 注意，此处计算loss是在validation dataset上计算。原则上constraint loss重复计算了，但是反正这个计算也不expensive，
-                # 重算一遍也没啥影响，出于代码清晰考虑就重算吧
-                loss_sum = 0
-                for batch in self.data_loader:
-                    _, __, ___, loss, ____, _____ = model(batch)
-                    loss_sum += loss
-
-                final_loss = loss + self.current_lambda * constraint + 1 / 2 * self.current_mu * constraint ** 2
-                self.val_loss_list.append([iter_idx, final_loss])
-
-            if iter_idx >= 2 * self.update_window and iter_idx % self.update_window == 0:
-                assert len(self.val_loss_list) >= 3
-                # 按照设计，loss在正常情况下应当是在下降的，因此delta按照道理应该是个负数
-                t0, t_half, t1 = self.val_loss_list[-3][1], self.val_loss_list[-2][1], self.val_loss_list[-1][1]
-                if not (min(t0, t1) < t_half < max(t0, t1)):
-                    delta_lambda = -np.inf
-                else:
-                    delta_lambda = (t1 - t0) / self.update_window
-            else:
-                delta_lambda = -np.inf
-
-            if abs(delta_lambda) < self.converge_threshold or delta_lambda > 0:
-                self.constraint_list.append([iter_idx, constraint])
-                self.current_lambda += self.current_mu * constraint.item()
-                logger.info("Updated lambda to {}".format(self.current_lambda))
-
-                if len(self.constraint_list) >= 2:
-                    if self.constraint_list[-1] > self.constraint_list[-2] * self.gamma:
-                        self.current_mu *= 10
-                        logger.info("Updated mu to {}".format(self.current_mu))
-        return self.current_lambda, self.current_mu
-
-
-def evaluation(model, loader, loader_fraction, epoch_idx=None, iter_idx=None):
-    with no_grad():
-        loss_list = []
-        for batch in loader:
-            _, __, ___, loss, ____, _____ = model(batch)
-            loss_list.append(loss)
-        loss = mean(FloatTensor(loss_list)).item()
-        constraint = model.calculate_constraint().item()
-    if epoch_idx is not None:
-        logger.info('epoch: {:>4d}, iter: {:>4d}, {:>6s} loss: {:>8.4f}, constraint: {:>8.4f}'
-                    .format(epoch_idx, iter_idx, loader_fraction, loss, constraint))
-    else:
-        logger.info('Final {} loss: {:>8.4f}, val loss: {:>8.4f}, constraint: {:>8.4f}'
-                    .format(loader_fraction, loader_fraction, loss, constraint))
 
 
 def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, argument):
@@ -132,8 +60,9 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
     clamp_edge_flag = True if clamp_edge_flag == 'True' else False
 
     iter_idx = 0
-    evaluation(model, val_loader, 'valid', 0, 0)
-    evaluation(model, train_dataloader, 'train', 0, 0)
+    predict_performance_evaluation(model, train_dataloader, 'train', 0, 0)
+    predict_performance_evaluation(model, val_loader, 'valid', 0, 0)
+
     model.generate_graph(0, adjacency_mat_folder)
     logger.info('--------------------start training--------------------')
     for epoch_idx in range(max_epoch):
@@ -147,7 +76,8 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             if constraint < model_converge_threshold:
                 return model
 
-            _, __, ___, loss, ____, _____ = model(batch)
+            output_dict = model(batch)
+            loss = output_dict['loss']
             loss = loss + lamb * constraint + 1 / 2 * mu * constraint ** 2
 
             optimizer.zero_grad()
@@ -159,25 +89,13 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
                 model.clamp_edge()
 
             if iter_idx % eval_iter_interval == 0:
-                evaluation(model, val_loader, 'valid', epoch_idx, iter_idx)
-                evaluation(model, train_dataloader, 'train', epoch_idx, iter_idx)
+                predict_performance_evaluation(model, train_dataloader, 'train', epoch_idx, iter_idx)
+                predict_performance_evaluation(model, val_loader, 'valid', epoch_idx, iter_idx)
                 model.generate_graph(iter_idx, adjacency_mat_folder)
 
-            if iter_idx % save_interval == 0:
-                save_model(model, 'CPA', ckpt_folder, epoch_idx, iter_idx, argument)
+            if iter_idx == 1 or iter_idx % save_interval == 0:
+                save_model(model, 'CPA', ckpt_folder, epoch_idx, iter_idx, argument, 'predict')
     return model
-
-
-def save_model(model, model_name, folder, epoch_idx, iter_idx, argument):
-    dataset_name = argument['dataset_name']
-    graph_type = argument['graph_type']
-    constraint_type = argument['constraint_type']
-    now = datetime.now().strftime("%Y%m%d%H%M%S")
-    file_name = '{}.{}.{}.{}.{}.{}.{}.model'.\
-        format(model_name, dataset_name, graph_type, constraint_type, now, epoch_idx, iter_idx)
-    path = os.path.join(folder, file_name)
-    save(model, path)
-    logger.info('model saved at iter idx: {}'.format(iter_idx))
 
 
 
@@ -210,15 +128,15 @@ def framework(argument):
     device = argument['device']
 
     # lagrangian
-    init_lambda = argument['init_lambda']
-    init_mu = argument['init_mu']
-    eta = argument['eta']
-    gamma = argument['gamma']
-    lagrangian_converge_threshold = argument['lagrangian_converge_threshold']
-    update_window = argument['update_window']
+    init_lambda = argument['init_lambda_predict']
+    init_mu = argument['init_mu_predict']
+    eta = argument['eta_predict']
+    gamma = argument['gamma_predict']
+    lagrangian_converge_threshold = argument['lagrangian_converge_threshold_predict']
+    update_window = argument['update_window_predict']
 
-    dataloader_dict = get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
-                                      reconstruct_input, predict_label, device=device)
+    dataloader_dict, _, __ = get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
+                                             reconstruct_input, predict_label, device=device)
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
     test_dataloader = dataloader_dict['test']
@@ -233,7 +151,7 @@ def framework(argument):
     optimizer = Adam(model.parameters())
 
     model = train(train_dataloader, validation_dataloader, model, multiplier_updater, optimizer, argument)
-    evaluation(model, test_dataloader, 'test')
+    predict_performance_evaluation(model, test_dataloader, 'test')
     print('')
 
 

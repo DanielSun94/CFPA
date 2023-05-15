@@ -63,7 +63,10 @@ def format_check(dataset):
 def id_map(single_observation):
     id_name_dict = {}
     name_id_dict = {}
-    for key in single_observation:
+    # 确保name_idx在各个dataset fraction中一致
+    key_list = [key for key in single_observation]
+    key_list = sorted(key_list)
+    for key in key_list:
         if key == 'visit_time':
             continue
         id_name_dict[len(id_name_dict)] = key

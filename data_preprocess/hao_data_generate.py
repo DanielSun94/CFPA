@@ -11,7 +11,7 @@ from default_config import missing_flag_num as miss_placeholder
 def main():
     default_save_data_folder = os.path.abspath('../resource/simulated_data')
     default_config_path = os.path.abspath('../resource/hao_model_config.yaml')
-    default_use_hidden = "True"
+    default_use_hidden = "False"
     default_group = 'lmci'
     default_sample_type = 'random'
     default_train_sample_size = 1024
@@ -62,6 +62,7 @@ def main():
     train_data, valid_data, test_data, stat_dict = \
         model.generate_dataset(train_sample_size, valid_sample_size, test_sample_size, personalized_type,
                                group, sample_type)
+    oracle_graph = model.get_oracle_graph()
 
     save_name = 'sim_hao_model_hidden_{}_group_{}_personal_{}_type_{}.pkl'\
         .format(use_hidden, group, personalized_type, sample_type)
@@ -74,7 +75,8 @@ def main():
                 'valid': valid_data,
                 'test': test_data,
             },
-            'stat_dict': stat_dict
+            'stat_dict': stat_dict,
+            'oracle_graph': oracle_graph
         },
         open(os.path.join(setting_dict['save_data_folder'], save_name), 'wb')
     )
@@ -140,10 +142,33 @@ class HaoModel(object):
             state = self.__calculate_state(init, para, visit_time, t_init)
             observed_state = self.__add_noise(state, init_mean)
             observed_state['visit_time'] = visit_time
+
+            if self.__use_hidden:
+                observed_state['tau_o'] = miss_placeholder
             state['visit_time'] = visit_time
             trajectory['observation'].append(observed_state)
             trajectory['true_value'].append(state)
         return trajectory
+
+    def get_oracle_graph(self):
+        hidden = self.__use_hidden
+        if hidden:
+            oracle = {
+                'a':{'a': 1, 'tau_p': 1, 'tau_o': 0, 'n': 0, 'c': 0},
+                'tau_p': {'a': 0, 'tau_p': 1, 'tau_o': 0, 'n': 1, 'c': 1},
+                'tau_o': {'a': 0, 'tau_p': 0, 'tau_o': 1, 'n': 1, 'c': 0},
+                'n': {'a': 0, 'tau_p': 0, 'tau_o': 0, 'n': 1, 'c': 1},
+                'c': {'a': 0, 'tau_p': 0, 'tau_o': 0, 'n': 0, 'c': 1},
+            }
+        else:
+            oracle = {
+                'a':{'a': 1, 'tau_p': 1, 'tau_o': 0, 'n': 0, 'c': 0},
+                'tau_p': {'a': 0, 'tau_p': 1, 'tau_o': 0, 'n': 1, 'c': 1},
+                'tau_o': {'a': 0, 'tau_p': 0, 'tau_o': 1, 'n': 1, 'c': 1},
+                'n': {'a': 0, 'tau_p': 0, 'tau_o': 0, 'n': 1, 'c': 1},
+                'c': {'a': 0, 'tau_p': 0, 'tau_o': 0, 'n': 0, 'c': 1},
+            }
+        return oracle
 
     def __calculate_state(self, init, para, visit_time, t_init):
         """
