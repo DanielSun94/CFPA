@@ -4,9 +4,6 @@ from model.treatment_effect_evaluation import TreatmentEffectEstimator
 from torch.optim import Adam
 
 
-def re_train():
-    print('')
-
 
 def framework(argument):
     # data setting
@@ -17,12 +14,14 @@ def framework(argument):
     mask_tag = argument['mask_tag']
 
     # data loader setting
-    batch_first = True if argument['batch_first'] == 'True' else False
+    input_size = argument['input_size']
     minimum_observation = argument['minimum_observation']
 
     # treatment analysis
     model_ckpt_path = argument['model_ckpt_path']
     batch_size = argument['batch_size']
+    mode = argument['mode']
+    sample_multiplier = argument['sample_multiplier']
     device = argument['device']
     treatment_feature = argument['treatment_feature']
     treatment_time = argument['treatment_time']
@@ -46,14 +45,18 @@ def framework(argument):
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
 
-    model = TreatmentEffectEstimator(model_ckpt_path, dataset_name, treatment_feature, treatment_time, treatment_value,
-                                     device, name_id_dict, oracle_graph)
+    model = TreatmentEffectEstimator(
+        model_ckpt_path=model_ckpt_path, dataset_name=dataset_name, treatment_feature=treatment_feature,
+        treatment_time=treatment_time, treatment_value=treatment_value, device=device, name_id_dict=name_id_dict,
+        mode=mode, sample_multiplier=sample_multiplier, batch_size=batch_size, input_size=input_size)
     multiplier_updater = LagrangianMultiplierStateUpdater(
         init_lambda=init_lambda, init_mu=init_mu, gamma=gamma, eta=eta, update_window=update_window,
         dataloader=validation_dataloader, converge_threshold=lagrangian_converge_threshold)
     optimizer = Adam(model.parameters())
 
-    print('')
+    for batch in train_dataloader:
+        output_dict = model.re_fit(batch)
+        loss = output_dict
 
 
 if __name__ == '__main__':

@@ -37,6 +37,7 @@ class CausalTrajectoryPrediction(Module):
         # init value estimate module
         self.init_network = LSTM(input_size=input_size*2+1, hidden_size=hidden_size, batch_first=batch_first,
                                  bidirectional=self.init_net_bidirectional)
+        # 生成的分别是init value的均值与方差
         self.projection_net = Sequential(Linear(hidden_size, hidden_size), ReLU(), Linear(hidden_size, input_size * 2))
         self.causal_derivative = CausalDerivative(graph_type, constraint, input_size, hidden_size, mediate_size,
                                                   dataset_name, device)

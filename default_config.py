@@ -13,7 +13,7 @@ adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_fold
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 
 dataset = 'hao_false'
-device = 'cuda:5'
+device = 'cuda:3'
 model_ckpt_name = 'CPA.hao_false.DAG.default.20230407075131.0.1.model'
 model_ckpt_path = os.path.join(ckpt_folder, model_ckpt_name)
 
@@ -88,7 +88,8 @@ default_config = {
     'treatment_time': -2,
     'treatment_value': -2,
     'oracle_graph_flag': 'True',
-
+    'mode': 'reciprocal_confounded',
+    'sample_multiplier': 1024,
 
     # augmented Lagrangian predict phase
     "init_lambda_predict": 0,
@@ -175,7 +176,8 @@ parser.add_argument('--treatment_feature', help='', default=default_config['trea
 parser.add_argument('--treatment_time', help='', default=default_config['treatment_time'], type=float)
 parser.add_argument('--treatment_value', help='', default=default_config['treatment_value'], type=float)
 parser.add_argument('--oracle_graph_flag', help='', default=default_config['oracle_graph_flag'], type=str)
-
+parser.add_argument('--sample_multiplier', help='', default=default_config['sample_multiplier'], type=int)
+parser.add_argument('--mode', help='', default=default_config['mode'], type=str)
 args = vars(parser.parse_args())
 
 
