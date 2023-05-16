@@ -1,10 +1,9 @@
 import os
-
-import torch
-
 from default_config import ckpt_folder, logger, args as argument
 from torch.nn.utils.rnn import pad_sequence
-from torch import load, zeros_like, FloatTensor, chunk, cat, randn, LongTensor, unsqueeze
+from torch import load, zeros_like, FloatTensor, chunk, cat, randn, LongTensor, unsqueeze, permute, min, max, rand, \
+    squeeze
+from geomloss import SamplesLoss
 from torch.nn import Module, LSTM, Sequential, ReLU, Linear, ParameterList
 import numpy as np
 from torchdiffeq import odeint_adjoint as odeint
@@ -55,6 +54,8 @@ class TreatmentEffectEstimator(Module):
         self.confounder_flag = self.get_confounder_flag()
 
         self.model, self.adjacency = self.rebuild_model(mode)
+
+        self.samples_loss = SamplesLoss('sinkhorn', p=1, blur=0.01, scaling=0.9, backend='tensorized')
 
     def get_model_adjacency(self, model, oracle_graph):
         adjacency = model.causal_derivative.adjacency
@@ -150,8 +151,6 @@ class TreatmentEffectEstimator(Module):
         new_init_mean, new_init_std = unsqueeze(new_init_mean, dim=0), unsqueeze(new_init_std, dim=0)
         new_std = randn([sample_multiplier, batch_size, input_size + 1]).to(device)
         new_init_value = new_init_mean + new_std * new_init_std
-        # 最后一个数据本质是不可观测的
-        new_init_value = new_init_value[:, :, :input_size]
 
         if time is None:
             time = self.get_predict_time(label_time_list)
@@ -159,15 +158,33 @@ class TreatmentEffectEstimator(Module):
             assert isinstance(time, list) and isinstance(time[0], float)
             time = FloatTensor(time)
 
-        new_init_value = odeint(self.model.derivative, new_init_value, time)
+        origin_init_value = origin_init_value.reshape([self.batch_size * self.sample_multiplier, self.input_size])
+        new_init_value = new_init_value.reshape([self.batch_size * self.sample_multiplier, self.input_size+1])
+
         origin_predict_value = odeint(self.origin_model.causal_derivative, origin_init_value, time)
-        return 0
+        new_predict_value = odeint(self.model.derivative, new_init_value, time)
+
+        origin_predict_value, new_predict_value = squeeze(origin_predict_value), squeeze(new_predict_value)
+        origin_predict_value = origin_predict_value.reshape([self.sample_multiplier, self.batch_size, self.input_size])
+        new_predict_value = new_predict_value.reshape([self.sample_multiplier, self.batch_size, self.input_size+1])
+        origin_predict_value = permute(origin_predict_value, (1, 0, 2))
+        new_predict_value = permute(new_predict_value, (1, 0, 2))
+        # 最后一个数据本质是不可观测的
+        new_predict_value = new_predict_value[:, :, :input_size]
+
+        loss_sum = 0
+        origin_predict_value_list = chunk(origin_predict_value, chunks=self.batch_size, dim=0)
+        new_predict_value_list = chunk(new_predict_value, chunks=self.batch_size, dim=0)
+        for origin, new in zip(origin_predict_value_list, new_predict_value_list):
+            loss = self.samples_loss(new, origin)
+            loss_sum += loss
+        return loss_sum
 
     def get_predict_time(self, label_time_list):
         min_max_list = []
         for item in label_time_list:
             min_max_list.append(
-                [float(torch.min(item)), float(torch.max(item))]
+                [float(min(item)), float(max(item))]
             )
         min_max = -10000
         max_min = 10000
@@ -179,7 +196,7 @@ class TreatmentEffectEstimator(Module):
         if min_max >= max_min:
             time = FloatTensor(min_max)
         else:
-            time = torch.randn([1]) * (max_min-min_max) + min_max
+            time = randn([1]) * (max_min-min_max) + min_max
         time = FloatTensor(time).to(self.device)
         return time
 
@@ -211,7 +228,7 @@ class TrajectoryPrediction(Module):
         self.projection_net.to(device)
         self.origin_adjacency = origin_adjacency
         self.adjacency = self.set_adjacency()
-        self.derivative = Derivative(input_size, hidden_size, self.adjacency)
+        self.derivative = Derivative(input_size, hidden_size, self.adjacency, device).to(device)
 
 
     def predict_init_value(self, concat_input):
@@ -271,14 +288,15 @@ class TrajectoryPrediction(Module):
                 adjacency[input_size, idx] = 1
             else:
                 raise ValueError('')
-        return adjacency
+        return FloatTensor(adjacency)
 
 
 class Derivative(Module):
-    def __init__(self, input_size, hidden_size, adjacency):
+    def __init__(self, input_size, hidden_size, adjacency, device):
         super().__init__()
         self.input_size = input_size
         self.adjacency = adjacency
+        self.device = device
         self.net_list = ParameterList()
         for i in range(input_size+1):
             net = Sequential(
@@ -291,9 +309,16 @@ class Derivative(Module):
             self.net_list.append(net)
 
     def forward(self, _, inputs):
-        inputs = inputs.repeat(inputs.shape[1], 1)
-        inputs = inputs * self.adjacency
-        inputs_list = chunk(inputs, inputs.shape[0], dim=0)
+        # inputs shape [batch size, input dim]
+        # 注意，再次求derivative一定会有一个隐变量，因此假设有input size+1
+        assert inputs.shape[1] == self.input_size+1 and len(inputs.shape) == 2
+        inputs = unsqueeze(inputs, dim=1)
+        inputs = inputs.repeat(1, inputs.shape[2], 1)
+        assert inputs.shape[1] == inputs.shape[2] and len(inputs.shape) == 3
+
+        adjacency = unsqueeze(self.adjacency, dim=0).to(self.device)
+        inputs = inputs * adjacency
+        inputs_list = chunk(inputs, inputs.shape[1], dim=1)
 
         output_feature = []
         for i in range(self.input_size+1):
@@ -301,7 +326,8 @@ class Derivative(Module):
             input_i = inputs_list[i]
             derivative = net_i(input_i)
             output_feature.append(derivative)
-        output_feature = cat(output_feature, dim=1)
+        output_feature = cat(output_feature, dim=2)
+        output_feature = squeeze(output_feature, dim=1)
         return output_feature
 
 

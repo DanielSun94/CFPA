@@ -235,20 +235,24 @@ class CausalDerivative(Module):
 
     def forward(self, _, inputs):
         # designed for this format
-        assert inputs.shape[1] == self.input_size and inputs.shape[0] == 1 and len(inputs.shape) == 2
-        inputs = inputs.repeat(inputs.shape[1], 1)
-        assert inputs.shape[0] == inputs.shape[1] and len(inputs.shape) == 2
+        # inputs shape [batch size, input dim]
+        assert inputs.shape[1] == self.input_size and len(inputs.shape) == 2
+        inputs = unsqueeze(inputs, dim=1)
+        inputs = inputs.repeat(1, inputs.shape[2], 1)
+        assert inputs.shape[1] == inputs.shape[2] and len(inputs.shape) == 3
 
         # input_1 避免自环，input_2考虑自环
-        inputs_1 = inputs * (ones([inputs.shape[0], inputs.shape[0]]) - eye(inputs.shape[0])).to(self.device)
-        inputs_2 = inputs * eye(inputs.shape[0]).to(self.device)
+        filter_1 = unsqueeze(ones([inputs.shape[2], inputs.shape[2]]) - eye(inputs.shape[2]), dim=0).to(self.device)
+        filter_2 = unsqueeze(eye(inputs.shape[2]), dim=0).to(self.device)
+        inputs_1 = inputs * filter_1
+        inputs_2 = inputs * filter_2
 
         output_feature = []
         if self.graph_type == 'DAG':
-            adjacency = self.adjacency['dag']
+            adjacency = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
             inputs_1 = inputs_1 * adjacency
-            inputs_1_list = chunk(inputs_1, inputs.shape[0], dim=0)
-            inputs_2_list = chunk(inputs_2, inputs.shape[0], dim=0)
+            inputs_1_list = chunk(inputs_1, inputs.shape[1], dim=1)
+            inputs_2_list = chunk(inputs_2, inputs.shape[1], dim=1)
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
                 net_3 = self.fuse_net_list[i]
@@ -256,7 +260,7 @@ class CausalDerivative(Module):
                 input_2 = inputs_2_list[i]
 
                 representation_1 = net_1(input_1)
-                representation_3 = cat([representation_1, input_2], dim=1)
+                representation_3 = cat([representation_1, input_2], dim=2)
                 derivative = net_3(representation_3)
                 output_feature.append(derivative)
         elif self.graph_type == 'ADMG':
@@ -264,9 +268,9 @@ class CausalDerivative(Module):
             bi = self.adjacency['bi']
             inputs_1_dag = inputs_1 * dag
             inputs_1_bi = inputs_1 * bi
-            inputs_1_dag_list = chunk(inputs_1_dag, inputs.shape[0], dim=0)
-            inputs_1_bi_list = chunk(inputs_1_bi, inputs.shape[0], dim=0)
-            inputs_2_list = chunk(inputs_2, inputs.shape[0], dim=0)
+            inputs_1_dag_list = chunk(inputs_1_dag, inputs.shape[1], dim=1)
+            inputs_1_bi_list = chunk(inputs_1_bi, inputs.shape[1], dim=1)
+            inputs_2_list = chunk(inputs_2, inputs.shape[1], dim=1)
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
                 net_2 = self.bi_directed_net_list[i]
@@ -277,12 +281,13 @@ class CausalDerivative(Module):
 
                 representation_1 = net_1(input_1_dag)
                 representation_2 = net_2(input_1_bi)
-                representation_3 = cat([representation_1, representation_2, input_2], dim=1)
+                representation_3 = cat([representation_1, representation_2, input_2], dim=2)
                 derivative = net_3(representation_3)
                 output_feature.append(derivative)
         else:
             raise ValueError('')
-        output_feature = cat(output_feature, dim=1)
+        output_feature = cat(output_feature, dim=2)
+        output_feature = squeeze(output_feature, dim=1)
         return output_feature
 
     def graph_constraint(self):
