@@ -11,12 +11,12 @@ from default_config import missing_flag_num as miss_placeholder
 def main():
     default_save_data_folder = os.path.abspath('../resource/simulated_data')
     default_config_path = os.path.abspath('../resource/hao_model_config.yaml')
-    default_use_hidden = "False"
+    default_use_hidden = "True"
     default_group = 'lmci'
-    default_sample_type = 'random'
-    default_train_sample_size = 1024
-    default_valid_sample_size = 128
-    default_test_sample_size = 128
+    default_sample_type = 'uniform'
+    default_train_sample_size = 10240
+    default_valid_sample_size = 512
+    default_test_sample_size = 512
     default_personalized_type = 2
     parser = argparse.ArgumentParser(description='simulate data generating')
     parser.add_argument('--config_path', type=str, default=default_config_path)
@@ -156,7 +156,7 @@ class HaoModel(object):
             oracle = {
                 'a':{'a': 1, 'tau_p': 1, 'tau_o': 0, 'n': 0, 'c': 0},
                 'tau_p': {'a': 0, 'tau_p': 1, 'tau_o': 0, 'n': 1, 'c': 1},
-                'tau_o': {'a': 0, 'tau_p': 0, 'tau_o': 1, 'n': 1, 'c': 0},
+                'tau_o': {'a': 0, 'tau_p': 0, 'tau_o': 1, 'n': 1, 'c': 1},
                 'n': {'a': 0, 'tau_p': 0, 'tau_o': 0, 'n': 1, 'c': 1},
                 'c': {'a': 0, 'tau_p': 0, 'tau_o': 0, 'n': 0, 'c': 1},
             }
@@ -164,7 +164,7 @@ class HaoModel(object):
             oracle = {
                 'a':{'a': 1, 'tau_p': 1, 'tau_o': 0, 'n': 0, 'c': 0},
                 'tau_p': {'a': 0, 'tau_p': 1, 'tau_o': 0, 'n': 1, 'c': 1},
-                'tau_o': {'a': 0, 'tau_p': 0, 'tau_o': 1, 'n': 1, 'c': 1},
+                'tau_o': {'a': 0, 'tau_p': 0, 'tau_o': 1, 'n': 1, 'c': 0},
                 'n': {'a': 0, 'tau_p': 0, 'tau_o': 0, 'n': 1, 'c': 1},
                 'c': {'a': 0, 'tau_p': 0, 'tau_o': 0, 'n': 0, 'c': 1},
             }
@@ -323,7 +323,7 @@ class HaoModel(object):
                 visit_num = uniform_visit
                 visit_interval_list = [0]
                 for j in range(visit_num):
-                    visit_interval_list.append(uniform_interval + visit_interval_list[-1])
+                    visit_interval_list.append(float(uniform_interval + visit_interval_list[-1]))
                 visit_interval_list = visit_interval_list[1:]
             else:
                 raise ValueError('')
@@ -357,11 +357,11 @@ class HaoModel(object):
                         for key in single_visit:
                             value = single_visit[key]
                             assert value >= 0 or value == miss_placeholder
-                            if key == 'visit_time' or value == miss_placeholder:
-                                new_single_visit[key] = value
-                            # 如果是use hidden，默认tau_o应该是在true和obs中均不可见的
-                            elif key == 'tau_o' and self.__use_hidden:
+                            if key == 'tau_o' and self.__use_hidden:
                                 continue
+                            # 如果是use hidden，默认tau_o应该是在true和obs中均不可见的
+                            elif key == 'visit_time' or value == miss_placeholder:
+                                new_single_visit[key] = value
                             else:
                                 new_single_visit[key] = (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
                         new_visit_list.append(new_single_visit)

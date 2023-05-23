@@ -14,12 +14,10 @@ class TreatmentEffectEstimator(Module):
                  name_id_dict, mode, sample_multiplier, batch_size, input_size, oracle_graph=None):
         """
         此处 mode代表了与干预直接关联时，遇到了有confounder时的处理策略
-        这里根据oracle graph的不同，其实可能存在五种可能的情况
-        1. reciprocal代表特征间之间没有任何confounder，他们是纯粹的互为因果关系
-        2. reciprocal with confounder，特征间互为因果，但是同时也的确受第三个confounder的影响
-        3. full confounded代表特征间没有互为因果关系，他们是纯粹的被第三个confounder给控制，从而展现出了相关性
-        4. forward，代表特征间有因果关系，也有confounder，因果关系的指向是Treatment指向另一个变量
-        5. backward，代表特征间有因果关系，也有confounder，因果关系的指向是另一个变量指向Treatment变量
+        这里根据oracle graph的不同，其实可能存在三种可能的情况
+        1. full confounded代表特征间没有互为因果关系，他们是纯粹的被第三个confounder给控制，从而展现出了相关性
+        2. forward，代表特征间有因果关系，也有confounder，因果关系的指向是Treatment指向另一个变量
+        3. backward，代表特征间有因果关系，也有confounder，因果关系的指向是另一个变量指向Treatment变量
         """
 
         super().__init__()

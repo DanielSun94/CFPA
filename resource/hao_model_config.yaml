@@ -3,8 +3,8 @@ sample_characteristic:
   random_min_visit: 5
   random_max_interval: 2
   random_min_interval: 1
-  uniform_visit: 100
-  uniform_interval: 0.1
+  uniform_visit: 15
+  uniform_interval: 1
   t_0: 50
   unit: "year"
   distribution: "uniform"

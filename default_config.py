@@ -12,7 +12,8 @@ sim_data_folder = os.path.join(script_path, 'resource', 'simulated_data')
 adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_folder')
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 
-dataset = 'hao_false'
+dataset = 'hao_true'
+distribution_mode = 'uniform'
 device = 'cuda:3'
 model_ckpt_name = 'CPA.hao_false.DAG.default.20230407075131.0.1.model'
 model_ckpt_path = os.path.join(ckpt_folder, model_ckpt_name)
@@ -25,12 +26,16 @@ if not os.path.exists(ckpt_folder):
     os.makedirs(ckpt_folder)
 
 if dataset == 'hao_true':
-    data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_True_group_lmci_personal_2_type_random.pkl')
+    data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_{}_group_lmci_personal_2_type_{}.pkl'.format(
+        'False' if 'false' in dataset else 'True', distribution_mode
+    ))
     time_offset = 50
     minimum_observation = 4
     input_size = 4
 elif dataset == 'hao_false':
-    data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_False_group_lmci_personal_2_type_random.pkl')
+    data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_{}_group_lmci_personal_2_type_{}.pkl'.format(
+        'False' if 'false' in dataset else 'True', distribution_mode
+    ))
     time_offset = 50
     minimum_observation = 4
     input_size = 5
@@ -57,6 +62,7 @@ default_config = {
     "reconstruct_input": "True",
     "predict_label": "True",
     'time_offset': time_offset,
+    'distribution_mode': distribution_mode,
 
     # model config
     "mediate_size": 2,
@@ -67,9 +73,9 @@ default_config = {
     # train setting
     'max_epoch': 10000,
     'max_iteration': 1000000,
-    "batch_size": 32,
+    "batch_size": 256,
     "model_converge_threshold": 10**-8,
-    "clamp_edge_threshold": 10**-2,
+    "clamp_edge_threshold": 10**-3,
     "learning_rate": 0.01,
     "eval_iter_interval": 20,
     "eval_epoch_interval": -1,
@@ -79,8 +85,8 @@ default_config = {
     'save_iter_interval': 100,
 
     # graph setting
-    "constraint_type": 'default',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
-    'graph_type': 'DAG',  # valid value: ADMG, DAG
+    "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
+    'graph_type': 'ADMG',  # valid value: ADMG, DAG
 
     # treatment effect analysis
     'model_ckpt_path': model_ckpt_path,
@@ -92,8 +98,8 @@ default_config = {
     'sample_multiplier': 1024,
 
     # augmented Lagrangian predict phase
-    "init_lambda_predict": 0,
-    "init_mu_predict": 10**-3,
+    "init_lambda_predict": 10**-2,
+    "init_mu_predict": 10**-2,
     "eta_predict": 10,
     'gamma_predict': 0.9,
     'stop_threshold_predict': 10**-8,
@@ -123,6 +129,7 @@ parser.add_argument('--mask_tag', help='', default=default_config['mask_tag'], t
 parser.add_argument('--reconstruct_input', help='', default=default_config['reconstruct_input'], type=str)
 parser.add_argument('--predict_label', help='', default=default_config['predict_label'], type=str)
 parser.add_argument('--time_offset', help='', default=default_config['time_offset'], type=int)
+parser.add_argument('--distribution_mode', help='', default=default_config['distribution_mode'], type=str)
 
 # model config
 parser.add_argument('--mediate_size', help='', default=default_config['mediate_size'], type=int)

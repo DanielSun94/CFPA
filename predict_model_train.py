@@ -24,13 +24,15 @@ def unit_test(argument):
     device = argument['device']
     bidirectional = argument['init_net_bidirectional']
     dataset_name = argument['dataset_name']
+    mode = argument['distribution_mode']
 
     data = pickle.load(open(data_path, 'rb'))['data']['train']
 
     model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
                                        hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size,
                                        time_offset=time_offset, clamp_edge_threshold=clamp_edge_threshold,
-                                       bidirectional=bidirectional, device=device, dataset_name=dataset_name)
+                                       bidirectional=bidirectional, device=device, dataset_name=dataset_name,
+                                       mode=mode)
     dataset = SequentialVisitDataset(data)
     sampler = RandomSampler(dataset)
     dataloader = SequentialVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
@@ -57,7 +59,6 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
     clamp_edge_flag = argument['clamp_edge_flag']
     save_interval = argument['save_iter_interval']
     assert clamp_edge_flag == 'True' or clamp_edge_flag == 'False'
-    clamp_edge_flag = True if clamp_edge_flag == 'True' else False
 
     iter_idx = 0
     predict_performance_evaluation(model, train_dataloader, 'train', 0, 0)
@@ -85,8 +86,8 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             optimizer.step()
 
             # 删除部分边确保稀疏性，前面几次不做clamp，确保不要一开始因为初始化的原因出什么毛病
-            if iter_idx > 20 and clamp_edge_flag:
-                model.clamp_edge()
+            # if iter_idx > 20 and clamp_edge_flag:
+            #     model.clamp_edge()
 
             if iter_idx % eval_iter_interval == 0:
                 predict_performance_evaluation(model, train_dataloader, 'train', epoch_idx, iter_idx)
@@ -108,6 +109,7 @@ def framework(argument):
     time_offset = argument['time_offset']
     reconstruct_input = True if argument['reconstruct_input'] == 'True' else False
     predict_label = True if argument['predict_label'] == 'True' else False
+    mode = argument['distribution_mode']
 
     # graph setting
     graph_type = argument['graph_type']
@@ -135,15 +137,23 @@ def framework(argument):
     lagrangian_converge_threshold = argument['lagrangian_converge_threshold_predict']
     update_window = argument['update_window_predict']
 
-    dataloader_dict, _, __ = get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
-                                             reconstruct_input, predict_label, device=device)
+    dataloader_dict, name_id_dict, oracle_graph = get_data_loader(
+        dataset_name, data_path, batch_size, mask_tag, minimum_observation, reconstruct_input, predict_label,
+        device=device)
+
+    logger.info('name id dict')
+    logger.info(name_id_dict)
+    logger.info('oracle')
+    logger.info(oracle_graph)
+
+
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
     test_dataloader = dataloader_dict['test']
 
     model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
                                        hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size,
-                                       time_offset=time_offset, clamp_edge_threshold=clamp_edge_threshold,
+                                       time_offset=time_offset, clamp_edge_threshold=clamp_edge_threshold, mode=mode,
                                        bidirectional=bidirectional, device=device, dataset_name=dataset_name)
     multiplier_updater = LagrangianMultiplierStateUpdater(
         init_lambda=init_lambda, init_mu=init_mu, gamma=gamma, eta=eta, update_window=update_window,
