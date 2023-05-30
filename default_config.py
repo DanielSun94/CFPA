@@ -78,14 +78,14 @@ default_config = {
     "eval_iter_interval": 20,
     "eval_epoch_interval": -1,
     "device": device,
-    "clamp_edge_flag": "True",
+    "clamp_edge_flag": "False",
     'adjacency_mat_folder': adjacency_mat_folder,
     'save_iter_interval': 100,
 
     # graph setting
     "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
     'graph_type': 'ADMG',  # valid value: ADMG, DAG
-    'treatment_feature': 'a',
+    'treatment_feature': 'n',
     'treatment_time': -2,
     'treatment_value': -2,
     'oracle_graph_flag': 'True',
@@ -205,3 +205,19 @@ for item in config_list:
     logger.info("{}: {}".format(item[0], item[1]))
 
 # other config
+oracle_graph_dict ={
+    'predict.CPA.hao_true.ADMG.ancestral.20230322123827.0.1.model': {
+            'dag': {
+                'a': {'a': 1, 'tau_p': 1, 'n': 0, 'c': 0},
+                'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1},
+                'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1},
+                'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1}
+            },
+            'bi': {
+                'a': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 0},
+                'tau_p': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 0},
+                'n': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1},
+                'c': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 0}
+            }
+        }
+}

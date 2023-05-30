@@ -1,3 +1,5 @@
+import torch
+
 if __name__ == '__main__':
     print('unit test in verification')
 import pickle
@@ -208,6 +210,7 @@ class CausalDerivative(Module):
                 dag_net_list = self.directed_net_list
                 connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
                 self.adjacency['dag'] = connect_mat
+                constraint = trace(matrix_exp((connect_mat > self.clamp_edge_threshold).float())) - self.input_size
             elif self.graph_type == 'ADMG':
                 dag_net_list = self.directed_net_list
                 dag_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
@@ -215,6 +218,15 @@ class CausalDerivative(Module):
                 bi_net_list = self.bi_directed_net_list
                 bi_connect_mat = self.calculate_connectivity_mat(bi_net_list, absolute=True)
                 self.adjacency['bi'] = bi_connect_mat
+                assert self.constraint_type == 'ancestral'
+                binary_connect_mat = (dag_connect_mat > self.clamp_edge_threshold).float()
+                constraint = trace(matrix_exp(binary_connect_mat)) \
+                             - self.input_size
+                constraint = sum(((dag_connect_mat > self.clamp_edge_threshold) *
+                                  (bi_connect_mat > self.clamp_edge_threshold)).float()) + constraint
+            else:
+                raise ValueError('')
+        logger.info('binary graph constraint: {}'.format(constraint))
 
         write_content = [[self.graph_type]]
         if self.graph_type == 'DAG':
@@ -424,7 +436,6 @@ def unit_test(argument):
     constraint = argument['constraint_type']
     time_offset = argument['time_offset']
     clamp_edge_threshold = argument["clamp_edge_threshold"]
-    use_clamp_during_training = argument['use_clamp_during_training']
     bidirectional = argument['init_net_bidirectional']
     device = argument['device']
     dataset_name = argument['dataset_name']

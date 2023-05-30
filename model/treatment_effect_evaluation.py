@@ -11,7 +11,7 @@ from torchdiffeq import odeint_adjoint as odeint
 
 class TreatmentEffectEstimator(Module):
     def __init__(self, model_ckpt_path, dataset_name, treatment_idx, treatment_time, treatment_value, device,
-                 mode, sample_multiplier, batch_size, input_size):
+                 mode, sample_multiplier, batch_size, input_size, preset_graph):
         """
         此处 mode代表了与干预直接关联时，遇到了有confounder时的处理策略
         这里根据oracle graph的不同，其实可能存在三种可能的情况
@@ -36,6 +36,7 @@ class TreatmentEffectEstimator(Module):
         self.sample_multiplier = sample_multiplier
         self.input_size = input_size
         self.dataset_name = dataset_name
+        self.preset_graph = preset_graph
         self.mode = mode
         self.batch_size = batch_size
         self.device = device
@@ -54,23 +55,21 @@ class TreatmentEffectEstimator(Module):
         return 0
 
     def get_requires_refit_flag(self):
-        original_adjacency = self.oracle_adjacency
+        preset_graph = self.preset_graph
         treatment_idx = self.treatment_idx
-        if 'bi' not in original_adjacency:
+        bi_adjacency = preset_graph['bi']
+        if bi_adjacency[treatment_idx].sum() == 0:
             return False
         else:
-            bi_adjacency = original_adjacency['bi']
-            if bi_adjacency[treatment_idx].sum() == 0:
-                return False
-            else:
-                return True
+            return True
+
 
     def build_trajectory_effect_prediction_model(self, mode):
         # build model的任务包含两个，一个是识别treatment的性质（等同于重新构建一个oracle graph）
         # 另一个才是build model
         refit_flag = self.get_requires_refit_flag()
         original_model = self.oracle_model
-        original_model.requird_grad_(False)
+        original_model.requires_grad_(False)
         if not refit_flag:
             new_model = original_model
             return new_model, refit_flag
