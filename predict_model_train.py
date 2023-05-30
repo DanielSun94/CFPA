@@ -86,8 +86,8 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             optimizer.step()
 
             # 删除部分边确保稀疏性，前面几次不做clamp，确保不要一开始因为初始化的原因出什么毛病
-            # if iter_idx > 20 and clamp_edge_flag:
-            #     model.clamp_edge()
+            if iter_idx > 20 and clamp_edge_flag:
+                model.clamp_edge()
 
             if iter_idx % eval_iter_interval == 0:
                 predict_performance_evaluation(model, train_dataloader, 'train', epoch_idx, iter_idx)

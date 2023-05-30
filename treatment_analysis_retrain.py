@@ -1,11 +1,14 @@
-from default_config import  args
+import os
+from default_config import  args, ckpt_folder
 from util import LagrangianMultiplierStateUpdater, get_data_loader
 from model.treatment_effect_evaluation import TreatmentEffectEstimator
 from torch.optim import Adam
 
 
 
-def framework(argument):
+def framework(argument, ckpt_name):
+    model_ckpt_path = os.path.join(ckpt_folder, ckpt_name)
+
     # data setting
     dataset_name = argument['dataset_name']
     data_path = argument['data_path']
@@ -18,7 +21,6 @@ def framework(argument):
     minimum_observation = argument['minimum_observation']
 
     # treatment analysis
-    model_ckpt_path = argument['model_ckpt_path']
     batch_size = argument['batch_size']
     mode = argument['mode']
     sample_multiplier = argument['sample_multiplier']
@@ -26,7 +28,6 @@ def framework(argument):
     treatment_feature = argument['treatment_feature']
     treatment_time = argument['treatment_time']
     treatment_value = argument['treatment_value']
-    oracle_graph_flag = True if argument['oracle_graph_flag'] == 'True' else False
 
     # lagrangian
     init_lambda = argument['init_lambda_treatment']
@@ -39,15 +40,14 @@ def framework(argument):
     dataloader_dict, name_id_dict, oracle_graph = \
         get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
                         reconstruct_input, predict_label, device=device)
-    if not oracle_graph_flag:
-        oracle_graph = None
+    treatment_idx = name_id_dict[treatment_feature]
 
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
 
     model = TreatmentEffectEstimator(
-        model_ckpt_path=model_ckpt_path, dataset_name=dataset_name, treatment_feature=treatment_feature,
-        treatment_time=treatment_time, treatment_value=treatment_value, device=device, name_id_dict=name_id_dict,
+        model_ckpt_path=model_ckpt_path, dataset_name=dataset_name, treatment_idx=treatment_idx,
+        treatment_time=treatment_time, treatment_value=treatment_value, device=device,
         mode=mode, sample_multiplier=sample_multiplier, batch_size=batch_size, input_size=input_size)
     multiplier_updater = LagrangianMultiplierStateUpdater(
         init_lambda=init_lambda, init_mu=init_mu, gamma=gamma, eta=eta, update_window=update_window,
@@ -60,4 +60,5 @@ def framework(argument):
 
 
 if __name__ == '__main__':
-    framework(args)
+    model_ckpt_name = 'CPA.hao_false.DAG.default.20230407075131.0.1.model'
+    framework(args, model_ckpt_name)

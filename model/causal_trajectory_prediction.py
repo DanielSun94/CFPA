@@ -155,7 +155,7 @@ class CausalTrajectoryPrediction(Module):
         self.causal_derivative.clamp_edge(self.clamp_edge_threshold)
 
     def generate_graph(self, idx, folder=None):
-        return self.causal_derivative.generate_adjacency(idx, folder)
+        return self.causal_derivative.print_adjacency(idx, folder)
 
 
 class CausalDerivative(Module):
@@ -201,7 +201,7 @@ class CausalDerivative(Module):
         else:
             raise ValueError('')
 
-    def generate_adjacency(self, iter_idx, write_folder=None):
+    def print_adjacency(self, iter_idx, write_folder=None):
         clamp_edge_threshold = self.clamp_edge_threshold
         with no_grad():
             if self.graph_type == 'DAG':
@@ -266,24 +266,24 @@ class CausalDerivative(Module):
             with open(write_path, 'w', encoding='utf-8-sig', newline='') as f:
                 csv.writer(f).writerows(write_content)
 
-    # def clamp_edge(self, clamp_edge_threshold):
-    #     with no_grad():
-    #         if self.graph_type == 'DAG':
-    #             dag_net_list = self.directed_net_list
-    #             connect_mat = self.calculate_connectivity_mat(dag_net_list)
-    #             keep_edge = connect_mat > clamp_edge_threshold
-    #             self.adjacency['dag'] *= keep_edge
-    #         elif self.graph_type == 'ADMG':
-    #             dag_net_list = self.directed_net_list
-    #             dag_connect_mat = self.calculate_connectivity_mat(dag_net_list)
-    #             dag_keep_edge = dag_connect_mat > clamp_edge_threshold
-    #             self.adjacency['dag'] *= dag_keep_edge
-    #             bi_net_list = self.bi_directed_net_list
-    #             bi_connect_mat = self.calculate_connectivity_mat(bi_net_list)
-    #             bi_keep_edge = bi_connect_mat > clamp_edge_threshold
-    #             self.adjacency['bi'] *= bi_keep_edge
-    #         else:
-    #             raise ValueError('')
+    def clamp_edge(self, clamp_edge_threshold):
+        with no_grad():
+            if self.graph_type == 'DAG':
+                dag_net_list = self.directed_net_list
+                connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
+                keep_edge = connect_mat > clamp_edge_threshold
+                self.adjacency['dag'] *= keep_edge
+            elif self.graph_type == 'ADMG':
+                dag_net_list = self.directed_net_list
+                dag_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
+                dag_keep_edge = dag_connect_mat > clamp_edge_threshold
+                self.adjacency['dag'] *= dag_keep_edge
+                bi_net_list = self.bi_directed_net_list
+                bi_connect_mat = self.calculate_connectivity_mat(bi_net_list, absolute=True)
+                bi_keep_edge = bi_connect_mat > clamp_edge_threshold
+                self.adjacency['bi'] *= bi_keep_edge
+            else:
+                raise ValueError('')
 
     def forward(self, _, inputs):
         # designed for this format
@@ -301,8 +301,8 @@ class CausalDerivative(Module):
 
         output_feature = []
         if self.graph_type == 'DAG':
-            # adjacency = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
-            # inputs_1 = inputs_1 * adjacency
+            adjacency = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
+            inputs_1 = inputs_1 * adjacency
             inputs_1_list = chunk(inputs_1, inputs.shape[1], dim=1)
             inputs_2_list = chunk(inputs_2, inputs.shape[1], dim=1)
             for i in range(self.input_size):
@@ -316,12 +316,12 @@ class CausalDerivative(Module):
                 derivative = net_3(representation_3)
                 output_feature.append(derivative)
         elif self.graph_type == 'ADMG':
-            # dag = self.adjacency['dag']
-            # bi = self.adjacency['bi']
-            # inputs_1_dag = inputs_1 * dag
-            # inputs_1_bi = inputs_1 * bi
-            inputs_1_dag_list = chunk(inputs_1, inputs.shape[1], dim=1)
-            inputs_1_bi_list = chunk(inputs_1, inputs.shape[1], dim=1)
+            dag = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
+            bi = unsqueeze(self.adjacency['bi'], dim=0).to(self.device)
+            inputs_1_dag = inputs_1 * dag
+            inputs_1_bi = inputs_1 * bi
+            inputs_1_dag_list = chunk(inputs_1_dag, inputs.shape[1], dim=1)
+            inputs_1_bi_list = chunk(inputs_1_bi, inputs.shape[1], dim=1)
             inputs_2_list = chunk(inputs_2, inputs.shape[1], dim=1)
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
@@ -424,6 +424,7 @@ def unit_test(argument):
     constraint = argument['constraint_type']
     time_offset = argument['time_offset']
     clamp_edge_threshold = argument["clamp_edge_threshold"]
+    use_clamp_during_training = argument['use_clamp_during_training']
     bidirectional = argument['init_net_bidirectional']
     device = argument['device']
     dataset_name = argument['dataset_name']

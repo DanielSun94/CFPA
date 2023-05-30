@@ -38,7 +38,7 @@ def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
     save(model, model_path)
     config_path = os.path.join(folder, file_name+'.config')
     pickle.dump(argument, open(config_path, 'wb'))
-    logger.info('model saved at iter idx: {}'.format(iter_idx))
+    logger.info('model saved at iter idx: {}, file name: {}'.format(iter_idx, file_name))
 
 
 class LagrangianMultiplierStateUpdater(object):

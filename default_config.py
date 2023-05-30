@@ -14,9 +14,7 @@ ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 
 dataset = 'hao_true'
 distribution_mode = 'uniform'
-device = 'cuda:3'
-model_ckpt_name = 'CPA.hao_false.DAG.default.20230407075131.0.1.model'
-model_ckpt_path = os.path.join(ckpt_folder, model_ckpt_name)
+device = 'cuda:7'
 
 if not os.path.exists(sim_data_folder):
     os.makedirs(sim_data_folder)
@@ -73,9 +71,9 @@ default_config = {
     # train setting
     'max_epoch': 10000,
     'max_iteration': 1000000,
-    "batch_size": 256,
+    "batch_size": 512,
     "model_converge_threshold": 10**-8,
-    "clamp_edge_threshold": 10**-3,
+    "clamp_edge_threshold": 10**-4,
     "learning_rate": 0.01,
     "eval_iter_interval": 20,
     "eval_epoch_interval": -1,
@@ -87,14 +85,11 @@ default_config = {
     # graph setting
     "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
     'graph_type': 'ADMG',  # valid value: ADMG, DAG
-
-    # treatment effect analysis
-    'model_ckpt_path': model_ckpt_path,
     'treatment_feature': 'a',
     'treatment_time': -2,
     'treatment_value': -2,
     'oracle_graph_flag': 'True',
-    'mode': 'reciprocal_confounded',
+    'mode': 'full_confounded',
     'sample_multiplier': 1024,
 
     # augmented Lagrangian predict phase
@@ -178,7 +173,6 @@ parser.add_argument('--lagrangian_converge_threshold_treatment', help='',
                     default=default_config['lagrangian_converge_threshold_treatment'], type=float)
 
 # treatment analysis
-parser.add_argument('--model_ckpt_path', help='', default=default_config['model_ckpt_path'], type=str)
 parser.add_argument('--treatment_feature', help='', default=default_config['treatment_feature'], type=str)
 parser.add_argument('--treatment_time', help='', default=default_config['treatment_time'], type=float)
 parser.add_argument('--treatment_value', help='', default=default_config['treatment_value'], type=float)

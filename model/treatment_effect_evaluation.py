@@ -10,8 +10,8 @@ from torchdiffeq import odeint_adjoint as odeint
 
 
 class TreatmentEffectEstimator(Module):
-    def __init__(self, model_ckpt_path, dataset_name, treatment_feature, treatment_time, treatment_value, device,
-                 name_id_dict, mode, sample_multiplier, batch_size, input_size, oracle_graph=None):
+    def __init__(self, model_ckpt_path, dataset_name, treatment_idx, treatment_time, treatment_value, device,
+                 mode, sample_multiplier, batch_size, input_size):
         """
         此处 mode代表了与干预直接关联时，遇到了有confounder时的处理策略
         这里根据oracle graph的不同，其实可能存在三种可能的情况
@@ -23,8 +23,6 @@ class TreatmentEffectEstimator(Module):
         super().__init__()
         model = load(model_ckpt_path)
 
-        assert isinstance(name_id_dict, dict) and isinstance(treatment_feature, str) and \
-               (treatment_feature in name_id_dict)
         # treatment time为-1，-2时表示施加干预的时间是最后一次入院的时间/倒数第二次入院的时间，是正数时代表任意指定时间
         assert treatment_time == -1 or treatment_time == -2 or \
                (treatment_time > 0 and isinstance(treatment_time, float))
@@ -32,58 +30,60 @@ class TreatmentEffectEstimator(Module):
         assert treatment_value == -1 or treatment_value == -2 \
                or (treatment_value > 0 and isinstance(treatment_value, float))
         assert dataset_name == model.dataset_name
-        self.treatment_feature = treatment_feature
-        self.treatment_idx = name_id_dict[treatment_feature]
+        self.treatment_idx = treatment_idx
         self.treatment_value = treatment_value
         self.treatment_time = treatment_time
         self.sample_multiplier = sample_multiplier
         self.input_size = input_size
-        self.name_id_dict = name_id_dict
         self.dataset_name = dataset_name
         self.mode = mode
         self.batch_size = batch_size
         self.device = device
+        self.samples_loss = SamplesLoss('sinkhorn', p=1, blur=0.01, scaling=0.9, backend='tensorized')
 
         # original model不参与参数更新，参数锁定
         model.device = device
         model.causal_derivative.device = device
-        self.origin_model = model.to(device).requires_grad_(False)
-        self.origin_model_adjacency = self.get_model_adjacency(model, oracle_graph)
-        self.confounder_flag = self.get_confounder_flag()
+        self.oracle_model = model.to(device).requires_grad_(False)
+        self.oracle_adjacency = model.causal_derivative.adjacency
+        self.model, self.adjacency = self.build_trajectory_effect_prediction_model(mode)
 
-        self.model, self.adjacency = self.rebuild_model(mode)
+    def adjacency_graph_analyze(self, mode, input_size, original_adjacency, treatment_idx):
+        assert mode in {'full_confounded', 'forward', 'backward'}
+        adjacency_graph = np.zeros([input_size, input_size])
+        return 0
 
-        self.samples_loss = SamplesLoss('sinkhorn', p=1, blur=0.01, scaling=0.9, backend='tensorized')
-
-    def get_model_adjacency(self, model, oracle_graph):
-        adjacency = model.causal_derivative.adjacency
-        dag = adjacency['dag']
-        bi = adjacency['bi'] if 'bi' in adjacency else zeros_like(dag)
-        adjacency = ((dag + bi) > 0).float()
-        if oracle_graph is None:
-            return adjacency
+    def get_requires_refit_flag(self):
+        original_adjacency = self.oracle_adjacency
+        treatment_idx = self.treatment_idx
+        if 'bi' not in original_adjacency:
+            return False
         else:
-            return self.__oracle_graph_reformat(oracle_graph)
+            bi_adjacency = original_adjacency['bi']
+            if bi_adjacency[treatment_idx].sum() == 0:
+                return False
+            else:
+                return True
 
-    def get_confounder_flag(self):
-        confounder_flag = False
-        treatment_idx = self.treatment_idx
-        for i in range(len(self.origin_model_adjacency)):
-            if i == treatment_idx:
-                assert self.origin_model_adjacency[i, i] == 0
-                continue
-            if self.origin_model_adjacency[treatment_idx, i] == self.origin_model_adjacency[i, treatment_idx] and \
-                    self.origin_model_adjacency[treatment_idx, i] == 1:
-                confounder_flag = True
-        return confounder_flag
+    def build_trajectory_effect_prediction_model(self, mode):
+        # build model的任务包含两个，一个是识别treatment的性质（等同于重新构建一个oracle graph）
+        # 另一个才是build model
+        refit_flag = self.get_requires_refit_flag()
+        original_model = self.oracle_model
+        original_model.requird_grad_(False)
+        if not refit_flag:
+            new_model = original_model
+            return new_model, refit_flag
 
-    def rebuild_model(self, mode):
+
+        self.adjacency_graph_analyze(mode)
+
         # input check
-        assert mode in {'full_confounded', 'reciprocal', 'forward', 'backward', 'reciprocal_confounded'}
-        original_model = self.origin_model
-        original_adjacency = self.origin_model_adjacency
-        treatment_idx = self.treatment_idx
-        input_size = self.origin_model.input_size
+
+
+
+
+
         bidirectional = self.origin_model.init_net_bidirectional
         hidden_size = self.origin_model.hidden_size
         batch_first = self.origin_model.init_network.batch_first
@@ -203,7 +203,7 @@ class TrajectoryPrediction(Module):
     """
     这个其实是Causal Trajectory Prediction，但是在这里不需要特别复杂的因果分析设定了，所以结构可以简单一些
     """
-    def __init__(self, origin_adjacency, mode, treat_idx, input_size, hidden_size, bidirectional, batch_first,
+    def __init__(self, oracle_adjacency, mode, treat_idx, input_size, hidden_size, bidirectional, batch_first,
                  sample_multiplier, device):
         super().__init__()
         self.input_size = input_size
@@ -224,7 +224,7 @@ class TrajectoryPrediction(Module):
             Linear(hidden_size, (input_size+1) * 2)
         )
         self.projection_net.to(device)
-        self.origin_adjacency = origin_adjacency
+        self.oracle_adjacency = oracle_adjacency
         self.adjacency = self.set_adjacency()
         self.derivative = Derivative(input_size, hidden_size, self.adjacency, device).to(device)
 
@@ -245,7 +245,7 @@ class TrajectoryPrediction(Module):
 
 
     def set_adjacency(self):
-        origin_adjacency = self.origin_adjacency
+        oracle_adjacency = self.oracle_adjacency
         input_size = self.input_size
         treat_idx = self.treat_idx
         mode = self.mode
@@ -255,7 +255,7 @@ class TrajectoryPrediction(Module):
         adjacency[input_size, input_size] = 1
         for i in range(len(self.origin_adjacency)):
             for j in range(len(self.origin_adjacency[i])):
-                adjacency[i, j] = origin_adjacency[i, j]
+                adjacency[i, j] = oracle_adjacency[i, j]
 
         confounder_idx_list = []
         for i in range(len(adjacency)):

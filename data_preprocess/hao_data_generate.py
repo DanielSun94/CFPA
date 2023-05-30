@@ -11,10 +11,10 @@ from default_config import missing_flag_num as miss_placeholder
 def main():
     default_save_data_folder = os.path.abspath('../resource/simulated_data')
     default_config_path = os.path.abspath('../resource/hao_model_config.yaml')
-    default_use_hidden = "True"
+    default_use_hidden = "False"
     default_group = 'lmci'
     default_sample_type = 'uniform'
-    default_train_sample_size = 10240
+    default_train_sample_size = 20480
     default_valid_sample_size = 512
     default_test_sample_size = 512
     default_personalized_type = 2
