@@ -1,5 +1,3 @@
-import torch
-
 if __name__ == '__main__':
     print('unit test in verification')
 import pickle
@@ -156,8 +154,12 @@ class CausalTrajectoryPrediction(Module):
     def clamp_edge(self):
         self.causal_derivative.clamp_edge(self.clamp_edge_threshold)
 
-    def generate_graph(self, idx, folder=None):
+    def dump_graph(self, idx, folder=None):
         return self.causal_derivative.print_adjacency(idx, folder)
+
+    def generate_binary_graph(self, threshold):
+        return self.causal_derivative.generate_binary_adjacency(threshold)
+
 
 
 class CausalDerivative(Module):
@@ -202,6 +204,21 @@ class CausalDerivative(Module):
             }
         else:
             raise ValueError('')
+
+    def generate_binary_adjacency(self, threshold):
+        with no_grad():
+            if self.graph_type == 'DAG':
+                return {
+                    'dag': (self.adjacency['dag'] > threshold).float().detach().to('cpu').numpy(),
+                    'bi': None
+                }
+            elif self.graph_type == 'ADMG':
+                return {
+                    'dag': (self.adjacency['dag'] > threshold).float().detach().to('cpu').numpy(),
+                    'bi': (self.adjacency['bi'] > threshold).float().detach().to('cpu').numpy()
+                }
+            else:
+                raise ValueError('')
 
     def print_adjacency(self, iter_idx, write_folder=None):
         clamp_edge_threshold = self.clamp_edge_threshold

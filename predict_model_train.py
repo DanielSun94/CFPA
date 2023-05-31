@@ -64,7 +64,7 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
     predict_performance_evaluation(model, train_dataloader, 'train', 0, 0)
     predict_performance_evaluation(model, val_loader, 'valid', 0, 0)
 
-    model.generate_graph(0, adjacency_mat_folder)
+    model.dump_graph(0, adjacency_mat_folder)
     logger.info('--------------------start training--------------------')
     for epoch_idx in range(max_epoch):
         for batch in train_dataloader:
@@ -92,7 +92,7 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             if iter_idx % eval_iter_interval == 0:
                 predict_performance_evaluation(model, train_dataloader, 'train', epoch_idx, iter_idx)
                 predict_performance_evaluation(model, val_loader, 'valid', epoch_idx, iter_idx)
-                model.generate_graph(iter_idx, adjacency_mat_folder)
+                model.dump_graph(iter_idx, adjacency_mat_folder)
 
             if iter_idx == 1 or iter_idx % save_interval == 0:
                 save_model(model, 'CPA', ckpt_folder, epoch_idx, iter_idx, argument, 'predict')

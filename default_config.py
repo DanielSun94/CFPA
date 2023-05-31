@@ -14,7 +14,7 @@ ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 
 dataset = 'hao_true'
 distribution_mode = 'uniform'
-device = 'cuda:7'
+device = 'cuda:2'
 
 if not os.path.exists(sim_data_folder):
     os.makedirs(sim_data_folder)
@@ -85,12 +85,18 @@ default_config = {
     # graph setting
     "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
     'graph_type': 'ADMG',  # valid value: ADMG, DAG
-    'treatment_feature': 'n',
-    'treatment_time': -2,
-    'treatment_value': -2,
+
+    # treatment
+    'treatment_clamp_edge_threshold': 10**-4,
+    'treatment_feature_train': 'n',
+    'treatment_feature_eval': 'n',
+    'treatment_time_train': -2,
+    'treatment_value_train': -2,
+    'treatment_time_eval': 55,
+    'treatment_value_eval': 5,
     'oracle_graph_flag': 'True',
     'mode': 'full_confounded',
-    'sample_multiplier': 1024,
+    'sample_multiplier': 8,
 
     # augmented Lagrangian predict phase
     "init_lambda_predict": 10**-2,
@@ -173,12 +179,18 @@ parser.add_argument('--lagrangian_converge_threshold_treatment', help='',
                     default=default_config['lagrangian_converge_threshold_treatment'], type=float)
 
 # treatment analysis
-parser.add_argument('--treatment_feature', help='', default=default_config['treatment_feature'], type=str)
-parser.add_argument('--treatment_time', help='', default=default_config['treatment_time'], type=float)
-parser.add_argument('--treatment_value', help='', default=default_config['treatment_value'], type=float)
+parser.add_argument('--treatment_feature_train', help='', default=default_config['treatment_feature_train'], type=str)
+parser.add_argument('--treatment_time_train', help='', default=default_config['treatment_time_train'], type=float)
+parser.add_argument('--treatment_value_train', help='', default=default_config['treatment_value_train'], type=float)
+parser.add_argument('--treatment_feature_eval', help='', default=default_config['treatment_feature_eval'], type=str)
+parser.add_argument('--treatment_time_eval', help='', default=default_config['treatment_time_eval'], type=float)
+parser.add_argument('--treatment_value_eval', help='', default=default_config['treatment_value_eval'], type=float)
 parser.add_argument('--oracle_graph_flag', help='', default=default_config['oracle_graph_flag'], type=str)
 parser.add_argument('--sample_multiplier', help='', default=default_config['sample_multiplier'], type=int)
+parser.add_argument('--treatment_clamp_edge_threshold', help='',
+                    default=default_config['treatment_clamp_edge_threshold'], type=float)
 parser.add_argument('--mode', help='', default=default_config['mode'], type=str)
+
 args = vars(parser.parse_args())
 
 
@@ -206,12 +218,12 @@ for item in config_list:
 
 # other config
 oracle_graph_dict ={
-    'predict.CPA.hao_true.ADMG.ancestral.20230322123827.0.1.model': {
+    'predict.CPA.hao_true.ADMG.ancestral.20230323050007.74.3000.model': {
             'dag': {
-                'a': {'a': 1, 'tau_p': 1, 'n': 0, 'c': 0},
-                'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1},
-                'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1},
-                'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1}
+                'a': {'a': 0, 'tau_p': 1, 'n': 0, 'c': 0},
+                'tau_p': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1},
+                'n': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 0},
+                'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 0}
             },
             'bi': {
                 'a': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 0},
