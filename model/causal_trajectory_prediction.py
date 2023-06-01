@@ -1,3 +1,5 @@
+import torch
+
 if __name__ == '__main__':
     print('unit test in verification')
 import pickle
@@ -30,6 +32,7 @@ class CausalTrajectoryPrediction(Module):
         self.graph_type = graph_type
         self.constraint = constraint
         self.time_offset = time_offset
+        self.sample_multiplier = 1
         self.dataset_name = dataset_name
         self.clamp_edge_threshold = clamp_edge_threshold
         self.device = device
@@ -49,74 +52,78 @@ class CausalTrajectoryPrediction(Module):
         self.projection_net.to(device)
         self.causal_derivative.to(device)
 
-    def forward(self, data):
+    def set_sample_multiplier(self, num):
+        self.sample_multiplier = num
+
+    def forward(self, concat_input_list, label_time_list):
         # data format [batch_size, visit_idx, feature_idx]
-        concat_input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _ = data
+        batch_size = len(concat_input_list)
 
         # estimate the init value
         init = self.predict_init_value(concat_input_list)
         init_value, init_std = init[:, :self.input_size], init[:, self.input_size: ]
-        std = randn(init_value.shape).to(self.device)
+        std = randn([self.sample_multiplier, init_value.shape[0], init_value.shape[1]]).to(self.device)
+        init_value, init_std = unsqueeze(init_value, dim=0), unsqueeze(init_std, dim=0)
         init_value = init_value + std * init_std
+        init_value = init_value.reshape([batch_size * self.sample_multiplier, self.input_size])
 
-        # predict label
-        loss_sum, reconstruct_loss_sum, predict_loss_sum = 0.0, 0.0, 0.0
         if self.mode == 'random':
             predict_value_list = []
             init_value_list = chunk(init_value, init_value.shape[0], dim=0)
-            for init_value, time, label, label_type, label_mask in \
-                    zip(init_value_list, label_time_list, label_feature_list, label_type_list, label_mask_list):
-                time = time - self.time_offset
+            label_time_list_multiplier = []
+            for item in label_time_list:
+                for i in range(self.sample_multiplier):
+                    label_time_list_multiplier.append(item)
 
+            for init_value, time in zip(init_value_list, label_time_list_multiplier):
+                time = (time - self.time_offset).to(self.device)
                 predict_value = squeeze(odeint(self.causal_derivative, init_value, time))
-                predict_value_list.append(predict_value.detach())
-
-                # 注意，label mask和label type指的是不一样的，前者指代的是每个element是否丢失，后者指代每个element是否有效
-                sample_loss = self.mse_loss_func(predict_value, label) * (1 - label_mask)
-
-                reconstruct_loss = sample_loss * unsqueeze(label_type == 1, dim=1)
-                reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
-                reconstruct_loss = reconstruct_loss.sum() / reconstruct_valid_ele_num
-                reconstruct_loss_sum += reconstruct_loss
-
-                predict_loss = sample_loss * unsqueeze(label_type == 2, dim=1)
-                predict_valid_ele_num = (predict_loss != 0).sum()
-                predict_loss = predict_loss.sum() / predict_valid_ele_num
-                predict_loss_sum += predict_loss
-
-            predict_loss_sum = predict_loss_sum / len(init_value_list)
-            reconstruct_loss_sum = reconstruct_loss_sum / len(init_value_list)
-            loss_sum = (reconstruct_loss_sum + predict_loss_sum) / 2
+                predict_value_list.append(predict_value)
         else:
             assert self.mode == 'uniform'
-            time = label_time_list[0] - self.time_offset
+            time = (label_time_list[0] - self.time_offset).to(self.device)
             predict_value = odeint(self.causal_derivative, init_value, time)
             predict_value = permute(predict_value, [1, 0, 2])
-            label = stack(label_feature_list, dim=0)
-            mask = stack(label_mask_list, dim=0)
-            label_type = stack(label_type_list, dim=0)
-            sample_loss = self.mse_loss_func(predict_value, label) * (1 - mask)
+            predict_value = chunk(predict_value, predict_value.shape[0], dim=0)
+            predict_value_list = []
+            for i in range(len(predict_value)):
+                predict_value_list.append(squeeze(predict_value[i], dim=0))
+        return predict_value_list
 
-            reconstruct_loss = sample_loss * unsqueeze(label_type == 1, dim=2)
+    def loss_calculate(self, prediction_list, feature_list, mask_list, type_list):
+        mask_multi, type_multi, label_multi = [], [], []
+        for origin, multi in zip([feature_list, mask_list, type_list], [label_multi, mask_multi, type_multi]):
+            for item in origin:
+                for i in range(self.sample_multiplier):
+                    multi.append(item)
+
+        loss_sum, predict_loss_sum, reconstruct_loss_sum = 0, 0, 0
+        for predict, label, mask, type_ in zip(prediction_list, label_multi, mask_multi, type_multi):
+            sample_loss = self.mse_loss_func(predict, label) * (1 - mask)
+            type_ = unsqueeze(type_, dim=1)
+
+            reconstruct_loss = sample_loss * unsqueeze(type_ == 1, dim=2)
             reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
-            # 此处计算ele时已经是element wise，无需像上面一样再除batch size
             reconstruct_loss_sum = reconstruct_loss.sum() / reconstruct_valid_ele_num
 
-            predict_loss = sample_loss * unsqueeze(label_type == 2, dim=2)
+            predict_loss = sample_loss * unsqueeze(type_ == 2, dim=2)
             predict_valid_ele_num = (predict_loss != 0).sum()
-            predict_loss_sum = predict_loss.sum() / predict_valid_ele_num
+            predict_loss = predict_loss.sum() / predict_valid_ele_num
+            loss = (reconstruct_loss_sum + predict_loss_sum) / 2
 
-            predict_value_list = predict_value.detach()
-            predict_value_list = chunk(predict_value_list, predict_value_list.shape[0], dim=0)
+            loss_sum = loss + loss_sum
+            predict_loss_sum = predict_loss_sum + predict_loss
+            reconstruct_loss_sum = reconstruct_loss + reconstruct_loss_sum
 
-            loss_sum = (reconstruct_loss_sum + predict_loss_sum) / 2
-
+        loss_sum = loss_sum / len(prediction_list)
+        reconstruct_loss_sum = reconstruct_loss_sum / len(prediction_list)
+        predict_loss_sum = predict_loss_sum / len(prediction_list)
         output_dict = {
-            'predict_value_list': predict_value_list,
-            'label_type_list': label_type_list,
-            'label_feature_list': label_feature_list,
+            'predict_value_list': prediction_list,
+            'label_type_list': type_multi,
+            'label_feature_list': label_multi,
             'loss': loss_sum,
-            'reconstruct_loss': reconstruct_loss_sum,
+            'reconstruct_loss': reconstruct_loss_sum.detach(),
             'predict_loss': predict_loss_sum.detach()
         }
         return output_dict
@@ -135,18 +142,6 @@ class CausalTrajectoryPrediction(Module):
             hidden_init = init_seq[range(len(length)), length-1, :]
         value_init = self.projection_net(hidden_init)
         return value_init
-
-    def inference(self, concat_input, time):
-        with no_grad():
-            predict_value = []
-            init_value = self.predict_init_value(concat_input)
-            label_time_list = FloatTensor(time)
-            init_value_list = chunk(init_value, init_value.shape[0], dim=0)
-            time_list = chunk(label_time_list, label_time_list.shape[0], dim=0)
-            for init_value, time in zip(init_value_list, time_list):
-                predict_value.append(odeint(self.causal_derivative, init_value, time))
-            predict_value = squeeze(stack(predict_value))
-        return predict_value
 
     def calculate_constraint(self):
         return self.causal_derivative.graph_constraint()

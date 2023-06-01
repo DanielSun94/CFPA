@@ -1,7 +1,7 @@
 import torch
 from default_config import logger
 from torch.nn.utils.rnn import pad_sequence
-from torch import load, FloatTensor, chunk, cat, randn, LongTensor, unsqueeze, permute, min, max, rand, \
+from torch import FloatTensor, chunk, cat, randn, LongTensor, unsqueeze, stack, min, max, rand, \
     squeeze
 from geomloss import SamplesLoss
 from torch.nn import Module, LSTM, Sequential, ReLU, Linear, ParameterList
@@ -10,8 +10,8 @@ from torchdiffeq import odeint_adjoint as odeint
 
 
 class TreatmentEffectEstimator(Module):
-    def __init__(self, model_ckpt_path, dataset_name, treatment_idx, treatment_time, treatment_value, device,
-                 mode, sample_multiplier, batch_size, input_size, preset_graph, clamp_edge_threshold):
+    def __init__(self, trained_model, dataset_name, device, mode, sample_multiplier, batch_size, input_size,
+                 preset_graph, clamp_edge_threshold, treatment_idx, time_offset):
         """
         此处 mode代表了与干预直接关联时，遇到了有confounder时的处理策略
         这里根据oracle graph的不同，其实可能存在三种可能的情况
@@ -21,39 +21,29 @@ class TreatmentEffectEstimator(Module):
         """
 
         super().__init__()
-        # 此处model load部分要重写，因为oracle模型的情况也要用这行
-        model = load(model_ckpt_path)
 
         # treatment time为-1，-2时表示施加干预的时间是最后一次入院的时间/倒数第二次入院的时间，是正数时代表任意指定时间
-        assert treatment_time == -1 or treatment_time == -2 or \
-               (treatment_time > 0 and isinstance(treatment_time, float))
-        # treatment value -1, -2代表施加干预的值即为最后一次入(倒数第二次)院的指标观测值，正数时代表任意指定值
-        assert treatment_value == -1 or treatment_value == -2 \
-               or (treatment_value > 0 and isinstance(treatment_value, float))
-        assert dataset_name == model.dataset_name
-        self.treatment_idx = treatment_idx
-        self.treatment_value = treatment_value
-        self.treatment_time = treatment_time
         self.sample_multiplier = sample_multiplier
         self.input_size = input_size
         self.dataset_name = dataset_name
         self.preset_graph = preset_graph
         self.clamp_edge_threshold = clamp_edge_threshold
+        self.time_offset = time_offset
         self.mode = mode
         self.batch_size = batch_size
         self.device = device
+        self.treatment_idx = treatment_idx
         self.samples_loss = SamplesLoss('sinkhorn', p=1, blur=0.01, scaling=0.9, backend='tensorized')
-        self.oracle_model = model.to(device).requires_grad_(False)
+        self.trained_model = trained_model.to(device).requires_grad_(False)
 
         self.graph = preset_graph if preset_graph is not None else \
-            self.oracle_model.generate_binary_graph(clamp_edge_threshold)
+            self.trained_model.generate_binary_graph(clamp_edge_threshold)
         self.graph_legal_check(self.graph)
         self.re_fit_flag = self.get_requires_refit_flag()
 
         # oracle model不参与参数更新，参数锁定
-        model.device = device
-        model.causal_derivative.device = device
-
+        trained_model.device = device
+        trained_model.causal_derivative.device = device
         self.model, self.adjacency = self.build_trajectory_effect_prediction_model(mode)
 
     def get_requires_refit_flag(self):
@@ -109,111 +99,108 @@ class TreatmentEffectEstimator(Module):
         # build model的任务包含两个，一个是识别treatment的性质（等同于重新构建一个oracle graph）
         # 另一个才是build model
         refit_flag = self.re_fit_flag
-        oracle_model = self.oracle_model
-        oracle_model.requires_grad_(False)
+        trained_model = self.trained_model
+        trained_model.requires_grad_(False)
         if not refit_flag:
-            new_model = oracle_model
+            new_model = trained_model
             return new_model, refit_flag
 
         device = self.device
-        bidirectional = oracle_model.init_net_bidirectional
-        hidden_size = oracle_model.hidden_size
-        batch_first = oracle_model.init_network.batch_first
+        bidirectional = trained_model.init_net_bidirectional
+        hidden_size = trained_model.hidden_size
+        batch_first = trained_model.init_network.batch_first
         sample_multiplier = self.sample_multiplier
-        input_size = self.oracle_model.input_size
+        time_offset = self.time_offset
+        input_size = self.trained_model.input_size
         graph = self.graph
         treatment_idx = self.treatment_idx
         adjacency = self.adjacency_reconstruct(mode, input_size, graph, treatment_idx)
         adjacency = FloatTensor(np.eye(input_size+1) + adjacency)
 
-        model = TrajectoryPrediction(adjacency, mode, treatment_idx, input_size, hidden_size,
-                                     bidirectional, batch_first, sample_multiplier, device)
+        model = SimpleTrajectoryPrediction(adjacency, mode, treatment_idx, input_size, hidden_size,
+                                           bidirectional, batch_first, sample_multiplier, time_offset, device)
         logger.info('The model requires training before inference as we construct a new model')
-        return model, adjacency
+        return model, refit_flag
 
     def inference(self, data, time):
-        concat_input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _ = data
+        concat_input_list = data[0]
         model = self.model
 
         new_init = model.predict_init_value(concat_input_list)
         new_init_mean, _ = new_init[:, :self.input_size + 1], new_init[:, self.input_size + 1:]
-        time = FloatTensor(time)
+        time = FloatTensor(time).to(self.device)
         new_predict_value = odeint(self.model.derivative, new_init_mean, time)
         new_predict_value_list = chunk(new_predict_value, chunks=self.batch_size, dim=0)
         return new_predict_value_list
 
+    @staticmethod
+    def get_predict_time(label_time_list):
+        min_max_list = []
+        for item in label_time_list:
+            min_max_list.append(
+                [float(torch.min(item)), float(torch.max(item))]
+            )
+        min_max = -10000
+        max_min = 10000
+        for item in min_max_list:
+            if min_max < item[0]:
+                min_max = item[0]
+            if max_min > item[1]:
+                max_min = item[1]
+        if min_max >= max_min:
+            time = FloatTensor(min_max)
+        else:
+            time = torch.randn([1]) * (max_min-min_max) + min_max
+        return time
 
-    def re_fit(self, data, time=None):
+    def re_fit(self, concat_input_list, time):
         # 这里有个点，sinkhorn loss只能在sample内部进行比较
         assert self.mode in {'forward', 'backward', 'full_confounded'}
         # data format [batch_size, visit_idx, feature_idx]
-        concat_input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _ = data
-        sample_multiplier = self.sample_multiplier
-        batch_size = self.batch_size
         input_size = self.input_size
-        device = self.device
+        batch_size = len(concat_input_list)
+        sample_multiplier = self.sample_multiplier
 
-        oracle_model = self.oracle_model
-        model = self.model
-
-        oracle_init = oracle_model.predict_init_value(concat_input_list)
-        oracle_init_mean, oracle_init_std = oracle_init[:, :self.input_size], oracle_init[:, self.input_size:]
-        oracle_init_mean, oracle_init_std = unsqueeze(oracle_init_mean, dim=0), unsqueeze(oracle_init_std, dim=0)
-        oracle_std = randn([sample_multiplier, batch_size, input_size]).to(device)
-        oracle_init_value = oracle_init_mean + oracle_std * oracle_init_std
-
-        new_init = model.predict_init_value(concat_input_list)
-        new_init_mean, new_init_std = new_init[:, :self.input_size+1], new_init[:, self.input_size+1:]
-        new_init_mean, new_init_std = unsqueeze(new_init_mean, dim=0), unsqueeze(new_init_std, dim=0)
-        new_std = randn([sample_multiplier, batch_size, input_size + 1]).to(device)
-        new_init_value = new_init_mean + new_std * new_init_std
-
-        if time is None:
-            time = self.get_predict_time(label_time_list)
-        else:
-            assert isinstance(time, list) and isinstance(time[0], float)
-            time = FloatTensor(time)
-
-        oracle_init_value = oracle_init_value.reshape([self.batch_size * self.sample_multiplier, self.input_size])
-        new_init_value = new_init_value.reshape([self.batch_size * self.sample_multiplier, self.input_size+1])
-
-        oracle_predict_value = odeint(self.oracle_model.causal_derivative, oracle_init_value, time)
-        new_predict_value = odeint(self.model.derivative, new_init_value, time)
-
-        oracle_predict_value, new_predict_value = squeeze(oracle_predict_value), squeeze(new_predict_value)
-        oracle_predict_value = oracle_predict_value.reshape([self.sample_multiplier, self.batch_size, self.input_size])
-        new_predict_value = new_predict_value.reshape([self.sample_multiplier, self.batch_size, self.input_size+1])
-        oracle_predict_value = permute(oracle_predict_value, (1, 0, 2))
-        new_predict_value = permute(new_predict_value, (1, 0, 2))
+        predict_value = self.model(concat_input_list, time)
         # 最后一个数据本质是不可观测的
-        new_predict_value = new_predict_value[:, :, :input_size]
+        predict_value = predict_value[:, :, :input_size]
+
+        trained_model = self.trained_model
+        trained_model.set_sample_multiplier(self.sample_multiplier)
+        # 注意，oracle要求time是一个列表，treatment阶段一定是uniform，因为random无意义
+        assert trained_model.mode == 'uniform'
+        oracle_predict_value = trained_model(concat_input_list, [time])
+        oracle_predict_value = stack(oracle_predict_value, dim=0)
+        oracle_predict_value = oracle_predict_value.reshape([sample_multiplier, batch_size, input_size])
 
         loss_sum = 0
-        oracle_predict_value_list = chunk(oracle_predict_value, chunks=self.batch_size, dim=0)
-        new_predict_value_list = chunk(new_predict_value, chunks=self.batch_size, dim=0)
-        for oracle, new in zip(oracle_predict_value_list, new_predict_value_list):
-            loss = self.samples_loss(new, oracle)
+        oracle_predict_value_list = chunk(oracle_predict_value, chunks=sample_multiplier, dim=0)
+        predict_value_list = chunk(predict_value, chunks=sample_multiplier, dim=0)
+        for oracle, prediction in zip(oracle_predict_value_list, predict_value_list):
+            loss = self.samples_loss(prediction, oracle)
             loss_sum += loss
+        loss_sum = loss_sum / len(oracle_predict_value_list)
         return loss_sum
 
     def set_treatment(self, idx, value, time):
         return self.model.derivative.set_treatment(idx, value, time)
 
 
-class TrajectoryPrediction(Module):
+class SimpleTrajectoryPrediction(Module):
     """
     这个其实是Causal Trajectory Prediction，但是在这里不需要特别复杂的因果分析设定了，所以结构可以简单一些
     """
     def __init__(self, oracle_adjacency, mode, treat_idx, input_size, hidden_size, bidirectional, batch_first,
-                 sample_multiplier, device):
+                 sample_multiplier, time_offset, device):
         super().__init__()
         self.input_size = input_size
         self.mode = mode
         self.treat_idx = treat_idx
         self.input_size = input_size
         self.hidden_size = hidden_size
+        self.time_offset = time_offset
         self.bidirectional = bidirectional
-        self.batch_first = batch_first
+        self.batch = batch_first
         self.sample_multiplier = sample_multiplier
         self.device = device
 
@@ -227,6 +214,25 @@ class TrajectoryPrediction(Module):
         self.projection_net.to(device)
         self.oracle_adjacency = oracle_adjacency
         self.derivative = Derivative(input_size, hidden_size, oracle_adjacency, device).to(device)
+
+    def forward(self, concat_input_list, time):
+        time = (time - self.time_offset).to(self.device)
+
+        device = self.device
+        sample_multiplier = self.sample_multiplier
+        input_size = self.input_size
+        batch_size = len(concat_input_list)
+
+        init = self.predict_init_value(concat_input_list)
+        init_mean, init_std = init[:, :input_size + 1], init[:, input_size + 1:]
+        init_mean, init_std = unsqueeze(init_mean, dim=0), unsqueeze(init_std, dim=0)
+        std = randn([sample_multiplier, batch_size, input_size + 1]).to(device)
+        init_value = init_mean + std * init_std
+        init_value = init_value.reshape([batch_size * sample_multiplier, input_size + 1])
+
+        predict_value = odeint(self.derivative, init_value, time)
+        predict_value = predict_value.reshape([sample_multiplier, batch_size, input_size + 1])
+        return predict_value
 
 
     def predict_init_value(self, concat_input):

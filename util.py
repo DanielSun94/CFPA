@@ -100,7 +100,9 @@ def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=Non
     with no_grad():
         loss_list = []
         for batch in loader:
-            output_dict = model(batch)
+            input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _ = batch
+            predict_value_list = model(input_list, label_time_list)
+            output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list, label_type_list)
             loss = output_dict['loss']
             loss_list.append(loss)
         loss = mean(FloatTensor(loss_list)).item()
@@ -109,5 +111,18 @@ def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=Non
         logger.info('epoch: {:>4d}, iter: {:>4d}, {:>6s} loss: {:>8.4f}, constraint: {:>8.4f}'
                     .format(epoch_idx, iter_idx, loader_fraction, loss, constraint))
     else:
-        logger.info('final {} loss: {:>8.4f}, val loss: {:>8.4f}, constraint: {:>8.4f}'
-                    .format(loader_fraction, loader_fraction, loss, constraint))
+        logger.info('final {} loss: {:>8.4f}, constraint: {:>8.4f}'.format(loader_fraction, loss, constraint))
+
+
+def preset_graph_converter(id_dict, graph):
+    dag_graph = np.zeros([len(id_dict), len(id_dict)])
+    bi_graph = np.zeros([len(id_dict), len(id_dict)])
+    for key_1 in graph['dag']:
+        for key_2 in graph['dag'][key_1]:
+            idx_1, idx_2 = id_dict[key_1], id_dict[key_2]
+            dag_graph[idx_1, idx_2] = graph['dag'][key_1][key_2]
+    for key_1 in graph['bi']:
+        for key_2 in graph['bi'][key_1]:
+            idx_1, idx_2 = id_dict[key_1], id_dict[key_2]
+            bi_graph[idx_1, idx_2] = graph['bi'][key_1][key_2]
+    return {'dag': dag_graph, 'bi': bi_graph}

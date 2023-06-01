@@ -77,7 +77,9 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             if constraint < model_converge_threshold:
                 return model
 
-            output_dict = model(batch)
+            input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _ = batch
+            predict_value_list = model(input_list, label_time_list)
+            output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list, label_type_list)
             loss = output_dict['loss']
             loss = loss + lamb * constraint + 1 / 2 * mu * constraint ** 2
 

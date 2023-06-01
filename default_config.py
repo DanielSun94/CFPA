@@ -13,7 +13,7 @@ adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_fold
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 
 dataset = 'hao_true'
-distribution_mode = 'uniform'
+distribution_mode = 'random'
 device = 'cuda:2'
 
 if not os.path.exists(sim_data_folder):
@@ -71,7 +71,7 @@ default_config = {
     # train setting
     'max_epoch': 10000,
     'max_iteration': 1000000,
-    "batch_size": 512,
+    "batch_size": 16,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
     "learning_rate": 0.01,
@@ -88,15 +88,16 @@ default_config = {
 
     # treatment
     'treatment_clamp_edge_threshold': 10**-4,
-    'treatment_feature_train': 'n',
-    'treatment_feature_eval': 'n',
-    'treatment_time_train': -2,
-    'treatment_value_train': -2,
-    'treatment_time_eval': 55,
-    'treatment_value_eval': 5,
+    'treatment_feature': 'n',
+    'treatment_time': 52,
+    'treatment_value': 5,
     'oracle_graph_flag': 'True',
     'mode': 'full_confounded',
     'sample_multiplier': 8,
+    'treatment_refit_max_iter': 41,
+    'treatment_refit_max_epoch': 100,
+    'treatment_refit_converge_threshold': 10**-4,
+    'treatment_eval_iter_interval': 20,
 
     # augmented Lagrangian predict phase
     "init_lambda_predict": 10**-2,
@@ -116,6 +117,7 @@ default_config = {
     'update_window_treatment': 50,
     'lagrangian_converge_threshold_treatment': 10**-2,
 }
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--process_name', help='', default=default_config['process_name'], type=str)
@@ -179,16 +181,21 @@ parser.add_argument('--lagrangian_converge_threshold_treatment', help='',
                     default=default_config['lagrangian_converge_threshold_treatment'], type=float)
 
 # treatment analysis
-parser.add_argument('--treatment_feature_train', help='', default=default_config['treatment_feature_train'], type=str)
-parser.add_argument('--treatment_time_train', help='', default=default_config['treatment_time_train'], type=float)
-parser.add_argument('--treatment_value_train', help='', default=default_config['treatment_value_train'], type=float)
-parser.add_argument('--treatment_feature_eval', help='', default=default_config['treatment_feature_eval'], type=str)
-parser.add_argument('--treatment_time_eval', help='', default=default_config['treatment_time_eval'], type=float)
-parser.add_argument('--treatment_value_eval', help='', default=default_config['treatment_value_eval'], type=float)
+parser.add_argument('--treatment_feature', help='', default=default_config['treatment_feature'], type=str)
+parser.add_argument('--treatment_time', help='', default=default_config['treatment_time'], type=float)
+parser.add_argument('--treatment_value', help='', default=default_config['treatment_value'], type=float)
 parser.add_argument('--oracle_graph_flag', help='', default=default_config['oracle_graph_flag'], type=str)
 parser.add_argument('--sample_multiplier', help='', default=default_config['sample_multiplier'], type=int)
 parser.add_argument('--treatment_clamp_edge_threshold', help='',
                     default=default_config['treatment_clamp_edge_threshold'], type=float)
+parser.add_argument('--treatment_refit_max_iter', help='',
+                    default=default_config['treatment_refit_max_iter'], type=int)
+parser.add_argument('--treatment_refit_max_epoch', help='',
+                    default=default_config['treatment_refit_max_epoch'], type=int)
+parser.add_argument('--treatment_refit_converge_threshold', help='',
+                    default=default_config['treatment_refit_converge_threshold'], type=float)
+parser.add_argument('--treatment_eval_iter_interval', help='',
+                    default=default_config['treatment_eval_iter_interval'], type=int)
 parser.add_argument('--mode', help='', default=default_config['mode'], type=str)
 
 args = vars(parser.parse_args())
