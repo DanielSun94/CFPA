@@ -100,7 +100,7 @@ def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=Non
     with no_grad():
         loss_list = []
         for batch in loader:
-            input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _ = batch
+            input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _, _ = batch
             predict_value_list = model(input_list, label_time_list)
             output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list, label_type_list)
             loss = output_dict['loss']

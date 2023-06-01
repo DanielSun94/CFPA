@@ -71,7 +71,7 @@ default_config = {
     # train setting
     'max_epoch': 10000,
     'max_iteration': 1000000,
-    "batch_size": 16,
+    "batch_size": 64,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
     "learning_rate": 0.01,

@@ -45,13 +45,6 @@ class NODE(Module):
         # estimate the init value
         init_value = self.predict_init_value(concat_input, input_len_list, self.init_pooling)
 
-        # # length consistent case
-        # predict_value = odeint(self.derivative, init_value, FloatTensor(label_time_list[0])).permute(1, 0, 2)
-        # label = torch.stack([FloatTensor(item) for item in label_feature_list])
-        # mask = torch.stack([FloatTensor(item) for item in label_mask_list])
-        # loss = self.loss(predict_value, label) * (1 - mask)
-        # return _, label_feature_list, loss.mean(), loss.detach().mean(), 0
-
         # length inconsistent case
         init_value_list = chunk(init_value, init_value.shape[0], dim=0)
         loss_sum = 0

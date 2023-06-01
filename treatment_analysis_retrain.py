@@ -16,7 +16,7 @@ def model_refit(train_loader, val_loader, model, optimizer, max_epoch, max_itera
             iter_idx += 1
             if iter_idx > max_iteration:
                 break
-            input_list, _, _, _, _, time_list, _, _, _, _ = batch
+            input_list, time_list = batch[0], batch[5]
             time = model.get_predict_time(time_list)
             loss = model.re_fit(input_list, time)
             optimizer.zero_grad()
@@ -28,7 +28,7 @@ def model_refit(train_loader, val_loader, model, optimizer, max_epoch, max_itera
                     loss, num = 0, 0
                     for val_batch in val_loader:
                         num += 1
-                        input_list, _, _, _, _, _, _, _, _, _ = val_batch
+                        input_list = val_batch[0]
                         loss = model.re_fit(input_list, treatment_time) + loss
                     loss = loss / num
                 logger.info('epoch: {}, iter: {}, val loss: {}'

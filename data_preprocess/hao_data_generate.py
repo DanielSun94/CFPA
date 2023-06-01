@@ -13,7 +13,7 @@ def main():
     default_config_path = os.path.abspath('../resource/hao_model_config.yaml')
     default_use_hidden = "True"
     default_group = 'lmci'
-    default_sample_type = 'random'
+    default_sample_type = 'uniform'
     default_train_sample_size = 20480
     default_valid_sample_size = 512
     default_test_sample_size = 512
@@ -133,10 +133,11 @@ class HaoModel(object):
                 mean[key] = info_dict[key]['mean']
                 std[key] = info_dict[key]['std']
 
-    def __generate_trajectory(self, init_time, intervals, init_mean, init_std, para_mean, para_std, personalized):
+    def __generate_trajectory(self, init_time, intervals, init_mean, init_std, para_mean, para_std, personalized,
+                              fraction, idx):
         init, para = self.__personalized_parameter_generating(init_mean, init_std, para_mean, para_std, personalized)
         t_init = self.__sample_info['t_0']
-        trajectory = {'init': init, 'para': para, 'observation': [], 'true_value': []}
+        trajectory = {'init': init, 'para': para, 'observation': [], 'true_value': [], 'id': fraction+'_'+str(idx)}
         for item in intervals:
             visit_time = item + init_time
             state = self.__calculate_state(init, para, visit_time, t_init)
@@ -295,13 +296,13 @@ class HaoModel(object):
         return final_sample
 
     def generate_dataset(self, train_size, valid_size, test_size, personalized_type, group, sample_type):
-        train = self.generate_dataset_fraction(train_size, group, personalized_type, sample_type)
-        valid = self.generate_dataset_fraction(valid_size, group, personalized_type, sample_type)
-        test = self.generate_dataset_fraction(test_size, group, personalized_type, sample_type)
+        train = self.generate_dataset_fraction(train_size, group, personalized_type, sample_type, 'train')
+        valid = self.generate_dataset_fraction(valid_size, group, personalized_type, sample_type, 'val')
+        test = self.generate_dataset_fraction(test_size, group, personalized_type, sample_type, 'test')
         train, valid, test, stat_dict = self.post_preprocess(train, valid, test)
         return train, valid, test, stat_dict
 
-    def generate_dataset_fraction(self, sample_size, group, personalized_type, sample_type):
+    def generate_dataset_fraction(self, sample_size, group, personalized_type, sample_type, faction):
         random_min_visit = self.__sample_info['random_min_visit']
         random_max_visit = self.__sample_info['random_max_visit']
         random_max_interval = self.__sample_info['random_max_interval']
@@ -328,7 +329,7 @@ class HaoModel(object):
             else:
                 raise ValueError('')
             trajectory = self.__generate_trajectory(init_time, visit_interval_list, init_mean, init_std, para_mean,
-                                                    para_std, personalized_type)
+                                                    para_std, personalized_type, faction, i)
             dataset.append(trajectory)
         return dataset
 
@@ -348,7 +349,7 @@ class HaoModel(object):
         new_train, new_valid, new_test = [], [], []
         for origin, new in zip([train, valid, test], [new_train, new_valid, new_test]):
             for sample in origin:
-                new_sample = {'init': sample['init'], 'para': sample['para']}
+                new_sample = {'init': sample['init'], 'para': sample['para'], 'id': sample['id']}
                 obs, true = [], []
                 for origin_visit_list, new_visit_list in \
                         zip([sample['observation'], sample['true_value']], [obs, true]):

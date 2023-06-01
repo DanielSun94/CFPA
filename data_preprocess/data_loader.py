@@ -112,13 +112,13 @@ class SequentialVisitDataset(Dataset):
         format_check(dataset)
         self.id_name_dict, self.name_id_dict = id_map(dataset[0]['observation'][0])
         self.dataset = dataset
-        self.obs_list, self.true_list, self.time_list = self.data_split(dataset)
+        self.obs_list, self.true_list, self.time_list, self.id_list = self.data_split(dataset)
 
     def data_split(self, data):
-        obs_list, true_list, time_list = [], [], []
+        obs_list, true_list, time_list, id_list = [], [], [], []
         for sample in data:
             single_obs_sequence_data, single_sequence_time, single_true_sequence_data = [], [], []
-            observation_sequence, true_sequence = sample['observation'], sample['true_value']
+            observation_sequence, true_sequence, sample_id = sample['observation'], sample['true_value'], sample['id']
             observation_sequence = sorted(observation_sequence, key=lambda x: x['visit_time'], reverse=False)
             true_sequence = sorted(true_sequence, key=lambda x: x['visit_time'], reverse=False)
             for single_obs_visit in observation_sequence:
@@ -139,16 +139,17 @@ class SequentialVisitDataset(Dataset):
                     single_true_data[idx] = single_true_visit[key]
                 single_true_sequence_data.append(single_true_data)
 
+            id_list.append(sample_id)
             obs_list.append(single_obs_sequence_data)
             true_list.append(single_true_sequence_data)
             time_list.append(single_sequence_time)
-        return obs_list, true_list, time_list
+        return obs_list, true_list, time_list, id_list
 
     def __len__(self):
         return len(self.obs_list)
 
     def __getitem__(self, index):
-        return self.obs_list[index], self.true_list[index], self.time_list[index]
+        return self.obs_list[index], self.true_list[index], self.time_list[index], self.id_list[index]
 
 
 class SingleVisitDataloader(DataLoader):
@@ -171,7 +172,6 @@ class SequentialVisitDataloader(DataLoader):
     def __init__(self, dataset, batch_size, sampler, minimum_observation, mask, reconstruct_input, predict_label,
                  device):
         assert batch_size > 1
-        self.real_batch_size = batch_size
         self.mask = mask
         self.reconstruct_input = reconstruct_input
         self.predict_label = predict_label
@@ -181,16 +181,12 @@ class SequentialVisitDataloader(DataLoader):
 
     def reorganize_batch_data(self, data):
         min_obs_time = self.minimum_observation
-        batch_size = self.real_batch_size
-        sample_id_list = np.random.randint(0, len(data), [batch_size])
 
-        batch_data = []
-        for idx in sample_id_list:
-            batch_data.append(data[idx])
         # random sample label and observation
-        time_list = [item[2] for item in batch_data]
-        observed_list = [item[0] for item in batch_data]
-        true_list = [item[1] for item in batch_data]
+        id_list = [item[3] for item in data]
+        time_list = [item[2] for item in data]
+        observed_list = [item[0] for item in data]
+        true_list = [item[1] for item in data]
         valid_length_list = [len(item) for item in time_list]
         # for the randint and slice character, the prediction idx need to minus one, while the observation does not
         # 此处的min_obs_time从0起数
@@ -202,6 +198,7 @@ class SequentialVisitDataloader(DataLoader):
             else:
                 obs_idx_list.append(random.randint(min_obs_time, length - 1))
 
+        # 复现显然是要复现obs value，预测要预测true value
         available_feature_list, available_time_list, predict_feature_list, predict_time_list = [], [], [], []
         for sample_time_list, obs_value_list, true_value_list, sample_obs_idx in \
                 zip(time_list, observed_list, true_list, obs_idx_list):
@@ -209,20 +206,22 @@ class SequentialVisitDataloader(DataLoader):
             predict_feature_list.append(true_value_list[sample_obs_idx:])
             available_feature_list.append(obs_value_list[:sample_obs_idx])
             available_time_list.append(sample_time_list[:sample_obs_idx])
-        return predict_time_list, predict_feature_list, available_time_list, available_feature_list
+        return predict_time_list, predict_feature_list, available_time_list, available_feature_list, id_list
 
     def collate_fn(self, data):
-        predict_time_list, predict_feature_list, available_time_list, available_feature_list = \
+        predict_time_list, predict_feature_list, available_time_list, available_feature_list, id_list = \
             self.reorganize_batch_data(data)
         data = []
-        for pred_time, pred_feature, avail_time, ava_feature in \
-                zip(predict_time_list, predict_feature_list, available_time_list, available_feature_list):
-            data.append([pred_time, pred_feature, avail_time, ava_feature])
+        for pred_time, pred_feature, avail_time, ava_feature, sample_id in \
+                zip(predict_time_list, predict_feature_list, available_time_list, available_feature_list, id_list):
+            data.append([pred_time, pred_feature, avail_time, ava_feature, sample_id])
 
         input_feature_list, input_time_list, input_mask_list, label_feature_list, label_time_list, label_mask_list, \
-            type_list, input_len_list, label_len_list = [], [], [], [], [], [], [], [], []
+            type_list, input_len_list, label_len_list, sample_id_list = [], [], [], [], [], [], [], [], [], []
         for item in data:
-            pred_time, pred_feature, avail_time, avail_feature = item
+            pred_time, pred_feature, avail_time, avail_feature, sample_id = item
+            sample_id_list.append(sample_id)
+
             input_feature_mask = np.array(avail_feature) == missing_flag_num
             input_feature = (1 - input_feature_mask) * np.array(avail_feature)
             input_feature_list.append(FloatTensor(input_feature))
@@ -286,7 +285,7 @@ class SequentialVisitDataloader(DataLoader):
         label_mask_list = [item.to(self.device) for item in label_mask_list]
         type_list = [item.to(self.device) for item in type_list]
         return concat_input, input_feature_list, input_time_list, input_mask_list, label_feature_list,\
-            label_time_list, label_mask_list, type_list, input_len_list, label_len_list
+            label_time_list, label_mask_list, type_list, input_len_list, label_len_list, sample_id_list
 
 
 def main():
