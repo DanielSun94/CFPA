@@ -1,16 +1,12 @@
-import torch
-
 if __name__ == '__main__':
     print('unit test in verification')
-import pickle
 import os
 from default_config import logger
-from torch import FloatTensor, chunk, stack, squeeze, cat, transpose, eye, ones, no_grad, matmul, abs, sum, \
+from torch import chunk, stack, squeeze, cat, transpose, eye, ones, no_grad, matmul, abs, sum, \
     trace, tanh, unsqueeze, LongTensor, randn, permute
 from torch.linalg import matrix_exp
-from torch.utils.data import RandomSampler
-from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList
-from data_preprocess.data_loader import SequentialVisitDataloader, SequentialVisitDataset
+from torch.nn.functional import gumbel_softmax
+from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, BCEWithLogitsLoss, Sigmoid
 from torch.nn.utils.rnn import pad_sequence
 from torchdiffeq import odeint_adjoint as odeint
 from datetime import datetime
@@ -20,7 +16,7 @@ import csv
 class CausalTrajectoryPrediction(Module):
     def __init__(self, graph_type: str, constraint: str, input_size: int, hidden_size: int, batch_first: bool,
                  mediate_size: int, time_offset: int, clamp_edge_threshold: float, device: str, bidirectional: str,
-                 dataset_name:str, mode:str):
+                 dataset_name:str, mode:str, input_type_list: list):
         super().__init__()
         assert graph_type == 'DAG' or graph_type == 'ADMG'
         assert (graph_type == 'DAG' and constraint == 'default') or (constraint in {'ancestral', 'bow-free', 'arid'})
@@ -34,19 +30,21 @@ class CausalTrajectoryPrediction(Module):
         self.time_offset = time_offset
         self.sample_multiplier = 1
         self.dataset_name = dataset_name
+        self.input_type_list = input_type_list
         self.clamp_edge_threshold = clamp_edge_threshold
         self.device = device
         self.init_net_bidirectional = True if bidirectional == 'True' else False
         self.mode = mode
 
         self.mse_loss_func = MSELoss(reduction='none')
+        self.cross_entropy_func = BCEWithLogitsLoss(reduction='none')
         # init value estimate module
         self.init_network = LSTM(input_size=input_size*2+1, hidden_size=hidden_size, batch_first=batch_first,
                                  bidirectional=self.init_net_bidirectional)
         # 生成的分别是init value的均值与方差
         self.projection_net = Sequential(Linear(hidden_size, hidden_size), ReLU(), Linear(hidden_size, input_size * 2))
         self.causal_derivative = CausalDerivative(graph_type, constraint, input_size, hidden_size, mediate_size,
-                                                  dataset_name, device, clamp_edge_threshold)
+                                                  dataset_name, device, clamp_edge_threshold, input_type_list)
 
         self.init_network.to(device)
         self.projection_net.to(device)
@@ -99,21 +97,28 @@ class CausalTrajectoryPrediction(Module):
 
         loss_sum, predict_loss_sum, reconstruct_loss_sum = 0, 0, 0
         for predict, label, mask, type_ in zip(prediction_list, label_multi, mask_multi, type_multi):
-            sample_loss = self.mse_loss_func(predict, label) * (1 - mask)
-            type_ = unsqueeze(type_, dim=1)
+            for i in range(len(self.input_type_list)):
+                data_type = self.input_type_list[i]
+                if data_type == 'continuous':
+                    sample_loss = self.mse_loss_func(predict[:, i], label[:, i]) * (1 - mask[:, i])
+                elif data_type == 'discrete':
+                    sample_loss = self.cross_entropy_func(predict[:, i], label[:, i]) * (1 - mask[:, i])
+                else:
+                    raise ValueError('')
 
-            reconstruct_loss = sample_loss * unsqueeze(type_ == 1, dim=2)
-            reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
-            reconstruct_loss_sum = reconstruct_loss.sum() / reconstruct_valid_ele_num
+                reconstruct_loss = sample_loss * (type_ == 1).float()
+                reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
+                reconstruct_loss = reconstruct_loss.sum() / reconstruct_valid_ele_num
 
-            predict_loss = sample_loss * unsqueeze(type_ == 2, dim=2)
-            predict_valid_ele_num = (predict_loss != 0).sum()
-            predict_loss = predict_loss.sum() / predict_valid_ele_num
-            loss = (reconstruct_loss_sum + predict_loss_sum) / 2
+                predict_loss = sample_loss * (type_ == 2).float()
+                predict_valid_ele_num = (predict_loss != 0).sum()
+                predict_loss = predict_loss.sum() / predict_valid_ele_num
 
-            loss_sum = loss + loss_sum
-            predict_loss_sum = predict_loss_sum + predict_loss
-            reconstruct_loss_sum = reconstruct_loss + reconstruct_loss_sum
+                loss = (reconstruct_loss + predict_loss) / 2
+
+                loss_sum = loss + loss_sum
+                predict_loss_sum = predict_loss_sum + predict_loss
+                reconstruct_loss_sum = reconstruct_loss + reconstruct_loss_sum
 
         loss_sum = loss_sum / len(prediction_list)
         reconstruct_loss_sum = reconstruct_loss_sum / len(prediction_list)
@@ -159,7 +164,7 @@ class CausalTrajectoryPrediction(Module):
 
 class CausalDerivative(Module):
     def __init__(self, graph_type: str, constraint_type: str, input_size: int, hidden_size: int, mediate_size: int,
-                 dataset_name: str, device: str, clamp_edge_threshold:float):
+                 dataset_name: str, device: str, clamp_edge_threshold:float, input_type_list:list):
         super().__init__()
         assert graph_type == 'DAG' or graph_type == 'ADMG'
         self.constraint_type = constraint_type
@@ -168,8 +173,10 @@ class CausalDerivative(Module):
         self.device = device
         self.directed_net_list = ParameterList()
         self.fuse_net_list = ParameterList()
+        self.sigmoid = Sigmoid()
         self.clamp_edge_threshold = clamp_edge_threshold
         self.dataset_name = dataset_name
+        self.input_type_list = input_type_list
         self.bi_directed_net_list = None
         if graph_type == 'DAG':
             for i in range(input_size):
@@ -313,6 +320,16 @@ class CausalDerivative(Module):
         # designed for this format
         # inputs shape [batch size, input dim]
         assert inputs.shape[1] == self.input_size and len(inputs.shape) == 2
+        input_type_list = self.input_type_list
+
+        # 离散化离散变量的作用
+        assert len(input_type_list) == inputs.shape[1]
+        for i in range(len(input_type_list)):
+            if input_type_list[i] == 'discrete':
+                y_hard = (inputs[:, i] > 0).float()
+                y_soft = self.sigmoid(inputs[:, i])
+                inputs[:, i] = y_hard - y_soft.detach() + y_soft
+
         inputs = unsqueeze(inputs, dim=1)
         inputs = inputs.repeat(1, inputs.shape[2], 1)
         assert inputs.shape[1] == inputs.shape[2] and len(inputs.shape) == 3
@@ -362,6 +379,7 @@ class CausalDerivative(Module):
                 output_feature.append(derivative)
         else:
             raise ValueError('')
+
         output_feature = cat(output_feature, dim=2)
         output_feature = squeeze(output_feature, dim=1)
         return output_feature
@@ -432,42 +450,3 @@ class CausalDerivative(Module):
         connect_mat = permute(connect_mat, [1, 0])
         return connect_mat
 
-
-def unit_test(argument):
-    data_path = argument['data_path']
-    batch_first = True if argument['batch_first'] == 'True' else False
-    batch_size = argument['batch_size']
-    mediate_size = argument['mediate_size']
-    minimum_observation = argument['minimum_observation']
-    input_size = argument['input_size']
-    mask_tag = argument['mask_tag']
-    hidden_size = argument['hidden_size']
-    reconstruct_input = True if argument['reconstruct_input'] == 'True' else False
-    predict_label = True if argument['predict_label'] == 'True' else False
-    graph_type = argument['graph_type']
-    constraint = argument['constraint_type']
-    time_offset = argument['time_offset']
-    clamp_edge_threshold = argument["clamp_edge_threshold"]
-    bidirectional = argument['init_net_bidirectional']
-    device = argument['device']
-    dataset_name = argument['dataset_name']
-    mode = argument['distribution_mode']
-
-    model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
-                                       hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size,
-                                       time_offset=time_offset, clamp_edge_threshold=clamp_edge_threshold,
-                                       bidirectional=bidirectional, device=device, dataset_name=dataset_name,
-                                       mode=mode)
-    _ = model.causal_derivative.graph_constraint()
-    data = pickle.load(open(data_path, 'rb'))['data']['train']
-    dataset = SequentialVisitDataset(data)
-    sampler = RandomSampler(dataset)
-    dataloader = SequentialVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
-                                           minimum_observation=minimum_observation,
-                                           reconstruct_input=reconstruct_input, predict_label=predict_label,
-                                           device=device)
-    idx = 0
-    for batch in dataloader:
-        logger.info('index: {}'.format(idx))
-        idx += 1
-        __ = model(batch)

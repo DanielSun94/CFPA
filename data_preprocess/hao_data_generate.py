@@ -11,7 +11,7 @@ from default_config import missing_flag_num as miss_placeholder
 def main():
     default_save_data_folder = os.path.abspath('../resource/simulated_data')
     default_config_path = os.path.abspath('../resource/hao_model_config.yaml')
-    default_use_hidden = "True"
+    default_use_hidden = "False"
     default_group = 'lmci'
     default_sample_type = 'uniform'
     default_train_sample_size = 20480
@@ -63,6 +63,7 @@ def main():
         model.generate_dataset(train_sample_size, valid_sample_size, test_sample_size, personalized_type,
                                group, sample_type)
     oracle_graph = model.get_oracle_graph()
+    type_list = model.get_feature_type()
 
     save_name = 'sim_hao_model_hidden_{}_group_{}_personal_{}_type_{}.pkl'\
         .format(use_hidden, group, personalized_type, sample_type)
@@ -76,7 +77,8 @@ def main():
                 'test': test_data,
             },
             'stat_dict': stat_dict,
-            'oracle_graph': oracle_graph
+            'oracle_graph': oracle_graph,
+            'type_list': type_list
         },
         open(os.path.join(setting_dict['save_data_folder'], save_name), 'wb')
     )
@@ -150,6 +152,10 @@ class HaoModel(object):
             trajectory['observation'].append(observed_state)
             trajectory['true_value'].append(state)
         return trajectory
+
+    @staticmethod
+    def get_feature_type():
+        return {'a': 'c', 'tau_p': 'c', 'tau_o': 'c', 'n': 'c', 'c': 'c'}
 
     def get_oracle_graph(self):
         hidden = self.__use_hidden

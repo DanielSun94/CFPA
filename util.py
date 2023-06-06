@@ -24,7 +24,17 @@ def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_obser
                                                reconstruct_input=reconstruct_input, predict_label=predict_label)
         dataloader_dict[split] = dataloader
     name_id_dict = dataloader_dict['train'].dataset.name_id_dict
-    return dataloader_dict, name_id_dict, oracle_graph
+
+    name_type_dict = pickle.load(open(data_path, 'rb'))['type_list']
+    id_type_list = ['' for _ in range(len(name_id_dict))]
+    for key in name_type_dict:
+        if key not in name_id_dict:
+            continue
+        assert name_type_dict[key] == 'c' or name_type_dict[key] == 'd'
+        data_type = 'continuous' if name_type_dict[key] == 'c' else 'discrete'
+        idx = name_id_dict[key]
+        id_type_list[idx] = data_type
+    return dataloader_dict, name_id_dict, oracle_graph, id_type_list
 
 
 def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
@@ -66,8 +76,13 @@ class LagrangianMultiplierStateUpdater(object):
                 # 重算一遍也没啥影响，出于代码清晰考虑就重算吧
                 loss_sum = 0
                 for batch in self.data_loader:
-                    output_dict = model(batch)
+                    input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list,\
+                        _, _, _ = batch
+                    predict_value_list = model(input_list, label_time_list)
+                    output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list,
+                                                       label_type_list)
                     loss = output_dict['loss']
+
                     loss_sum += loss
 
                 final_loss = loss_sum + self.current_lambda * constraint + 1 / 2 * self.current_mu * constraint ** 2

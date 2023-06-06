@@ -13,8 +13,8 @@ adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_fold
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 
 dataset = 'hao_true'
-distribution_mode = 'random'
-device = 'cuda:2'
+distribution_mode = 'uniform'
+device = 'cuda:7'
 
 if not os.path.exists(sim_data_folder):
     os.makedirs(sim_data_folder)
@@ -71,7 +71,7 @@ default_config = {
     # train setting
     'max_epoch': 10000,
     'max_iteration': 1000000,
-    "batch_size": 64,
+    "batch_size": 512,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
     "learning_rate": 0.01,

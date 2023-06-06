@@ -81,7 +81,7 @@ def framework(argument, ckpt_name, preset_graph):
     eval_iter_interval = argument['treatment_eval_iter_interval']
     clamp_edge_threshold = argument['treatment_clamp_edge_threshold']
 
-    dataloader_dict, name_id_dict, _ = \
+    dataloader_dict, name_id_dict, _, id_type_list = \
         get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
                         reconstruct_input, predict_label, device=device)
     treatment_idx = name_id_dict[treatment_feature]
@@ -95,7 +95,8 @@ def framework(argument, ckpt_name, preset_graph):
     model = TreatmentEffectEstimator(
         trained_model=trained_model, dataset_name=dataset_name, device=device, treatment_idx=treatment_idx,
         preset_graph=preset_graph, mode=mode, sample_multiplier=sample_multiplier, batch_size=batch_size,
-        input_size=input_size, clamp_edge_threshold=clamp_edge_threshold, time_offset=time_offset)
+        input_size=input_size, clamp_edge_threshold=clamp_edge_threshold, time_offset=time_offset,
+        input_type_list=id_type_list)
     optimizer = Adam(model.parameters())
 
     re_fit_flag = model.re_fit_flag

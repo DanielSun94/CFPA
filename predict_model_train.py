@@ -139,7 +139,7 @@ def framework(argument):
     lagrangian_converge_threshold = argument['lagrangian_converge_threshold_predict']
     update_window = argument['update_window_predict']
 
-    dataloader_dict, name_id_dict, oracle_graph = get_data_loader(
+    dataloader_dict, name_id_dict, oracle_graph, id_type_list = get_data_loader(
         dataset_name, data_path, batch_size, mask_tag, minimum_observation, reconstruct_input, predict_label,
         device=device)
 
@@ -156,7 +156,8 @@ def framework(argument):
     model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
                                        hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size,
                                        time_offset=time_offset, clamp_edge_threshold=clamp_edge_threshold, mode=mode,
-                                       bidirectional=bidirectional, device=device, dataset_name=dataset_name)
+                                       bidirectional=bidirectional, device=device, dataset_name=dataset_name,
+                                       input_type_list=id_type_list)
     multiplier_updater = LagrangianMultiplierStateUpdater(
         init_lambda=init_lambda, init_mu=init_mu, gamma=gamma, eta=eta, update_window=update_window,
         dataloader=validation_dataloader, converge_threshold=lagrangian_converge_threshold)

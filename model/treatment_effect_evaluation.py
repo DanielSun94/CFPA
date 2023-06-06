@@ -1,17 +1,16 @@
 import torch
 from default_config import logger
 from torch.nn.utils.rnn import pad_sequence
-from torch import FloatTensor, chunk, cat, randn, LongTensor, unsqueeze, stack, min, max, rand, \
-    squeeze
+from torch import FloatTensor, chunk, cat, randn, LongTensor, unsqueeze, stack, squeeze
 from geomloss import SamplesLoss
-from torch.nn import Module, LSTM, Sequential, ReLU, Linear, ParameterList
+from torch.nn import Module, LSTM, Sequential, ReLU, Linear, ParameterList, Sigmoid
 import numpy as np
 from torchdiffeq import odeint_adjoint as odeint
 
 
 class TreatmentEffectEstimator(Module):
     def __init__(self, trained_model, dataset_name, device, mode, sample_multiplier, batch_size, input_size,
-                 preset_graph, clamp_edge_threshold, treatment_idx, time_offset):
+                 preset_graph, clamp_edge_threshold, treatment_idx, time_offset, input_type_list):
         """
         此处 mode代表了与干预直接关联时，遇到了有confounder时的处理策略
         这里根据oracle graph的不同，其实可能存在三种可能的情况
@@ -32,6 +31,7 @@ class TreatmentEffectEstimator(Module):
         self.mode = mode
         self.batch_size = batch_size
         self.device = device
+        self.input_type_list = input_type_list
         self.treatment_idx = treatment_idx
         self.samples_loss = SamplesLoss('sinkhorn', p=1, blur=0.01, scaling=0.9, backend='tensorized')
         self.trained_model = trained_model.to(device).requires_grad_(False)
@@ -112,13 +112,15 @@ class TreatmentEffectEstimator(Module):
         sample_multiplier = self.sample_multiplier
         time_offset = self.time_offset
         input_size = self.trained_model.input_size
+        input_type_list = self.input_type_list
         graph = self.graph
         treatment_idx = self.treatment_idx
         adjacency = self.adjacency_reconstruct(mode, input_size, graph, treatment_idx)
         adjacency = FloatTensor(np.eye(input_size+1) + adjacency)
 
         model = SimpleTrajectoryPrediction(adjacency, mode, treatment_idx, input_size, hidden_size,
-                                           bidirectional, batch_first, sample_multiplier, time_offset, device)
+                                           bidirectional, batch_first, sample_multiplier, time_offset, input_type_list,
+                                           device)
         logger.info('The model requires training before inference as we construct a new model')
         return model, refit_flag
 
@@ -191,7 +193,7 @@ class SimpleTrajectoryPrediction(Module):
     这个其实是Causal Trajectory Prediction，但是在这里不需要特别复杂的因果分析设定了，所以结构可以简单一些
     """
     def __init__(self, oracle_adjacency, mode, treat_idx, input_size, hidden_size, bidirectional, batch_first,
-                 sample_multiplier, time_offset, device):
+                 sample_multiplier, time_offset, input_type_list, device):
         super().__init__()
         self.input_size = input_size
         self.mode = mode
@@ -202,6 +204,7 @@ class SimpleTrajectoryPrediction(Module):
         self.bidirectional = bidirectional
         self.batch = batch_first
         self.sample_multiplier = sample_multiplier
+        self.input_type_list = input_type_list
         self.device = device
 
         self.init_network = LSTM(input_size=input_size*2+1, hidden_size=hidden_size, batch_first=batch_first,
@@ -213,7 +216,8 @@ class SimpleTrajectoryPrediction(Module):
         )
         self.projection_net.to(device)
         self.oracle_adjacency = oracle_adjacency
-        self.derivative = Derivative(input_size, hidden_size, oracle_adjacency, device).to(device)
+        self.derivative = Derivative(input_size, hidden_size, oracle_adjacency, input_type_list,
+                                     device).to(device)
 
     def forward(self, concat_input_list, time):
         time = (time - self.time_offset).to(self.device)
@@ -251,15 +255,17 @@ class SimpleTrajectoryPrediction(Module):
 
 
 class Derivative(Module):
-    def __init__(self, input_size, hidden_size, adjacency, device):
+    def __init__(self, input_size, hidden_size, adjacency, input_type_list, device):
         super().__init__()
         self.input_size = input_size
         self.adjacency = adjacency
+        self.input_type_list = input_type_list
         self.device = device
         self.treatment_idx = None
         self.treatment_time = None
         self.treatment_value = None
         self.net_list = ParameterList()
+        self.sigmoid = Sigmoid()
         for i in range(input_size+1):
             net = Sequential(
                 Linear(input_size + 1, hidden_size),
@@ -278,7 +284,16 @@ class Derivative(Module):
     def forward(self, t, inputs):
         # inputs shape [batch size, input dim]
         # 注意，再次求derivative一定会有一个隐变量，因此假设有input size+1
+        input_type_list = self.input_type_list
+        # 离散化离散变量的作用
+        for i in range(len(input_type_list)):
+            if input_type_list[i] == 'discrete':
+                y_hard = (inputs[:, i] > 0).float()
+                y_soft = self.sigmoid(inputs[:, i])
+                inputs[:, i] = y_hard - y_soft.detach() + y_soft
 
+        # treatment time 非none时代表是在做干预效应分析，此时时间大于treatment time时，inputs强行归置
+        # 为None时是在自然演变
         if self.treatment_time is not None and t > self.treatment_time:
             inputs[:, self.treatment_idx] = self.treatment_value
 
