@@ -5,6 +5,7 @@ import os
 from torch import save, no_grad, mean, FloatTensor
 from datetime import datetime
 import numpy as np
+from scipy.integrate import solve_ivp
 
 
 def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation, reconstruct_input,
@@ -25,7 +26,8 @@ def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_obser
         dataloader_dict[split] = dataloader
     name_id_dict = dataloader_dict['train'].dataset.name_id_dict
 
-    name_type_dict = pickle.load(open(data_path, 'rb'))['type_list']
+    name_type_dict = pickle.load(open(data_path, 'rb'))['feature_type_list']
+    stat_dict = pickle.load(open(data_path, 'rb'))['stat_dict']
     id_type_list = ['' for _ in range(len(name_id_dict))]
     for key in name_type_dict:
         if key not in name_id_dict:
@@ -34,7 +36,7 @@ def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_obser
         data_type = 'continuous' if name_type_dict[key] == 'c' else 'discrete'
         idx = name_id_dict[key]
         id_type_list[idx] = data_type
-    return dataloader_dict, name_id_dict, oracle_graph, id_type_list
+    return dataloader_dict, name_id_dict, oracle_graph, id_type_list, stat_dict
 
 
 def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
@@ -76,8 +78,8 @@ class LagrangianMultiplierStateUpdater(object):
                 # 重算一遍也没啥影响，出于代码清晰考虑就重算吧
                 loss_sum = 0
                 for batch in self.data_loader:
-                    input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list,\
-                        _, _, _ = batch
+                    input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
+                    label_mask_list, label_type_list = batch[6], batch[7]
                     predict_value_list = model(input_list, label_time_list)
                     output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list,
                                                        label_type_list)
@@ -115,7 +117,8 @@ def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=Non
     with no_grad():
         loss_list = []
         for batch in loader:
-            input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _, _ = batch
+            input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
+            label_mask_list, label_type_list = batch[6], batch[7]
             predict_value_list = model(input_list, label_time_list)
             output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list, label_type_list)
             loss = output_dict['loss']
@@ -141,3 +144,93 @@ def preset_graph_converter(id_dict, graph):
             idx_1, idx_2 = id_dict[key_1], id_dict[key_2]
             bi_graph[idx_1, idx_2] = graph['bi'][key_1][key_2]
     return {'dag': dag_graph, 'bi': bi_graph}
+
+
+def get_oracle_model(model_name, para_dict, init_dict, time_offset, stat_dict):
+    if 'hao_true' in model_name:
+        return OracleHaoModel(True, para_dict, init_dict, time_offset, stat_dict)
+    elif 'hao_false' in model_name:
+        return OracleHaoModel(False, para_dict, init_dict, time_offset, stat_dict)
+    else:
+        raise ValueError('')
+
+
+class OracleHaoModel(object):
+    def __init__(self, hidden_type, init_dict, para_dict, time_offset, stat_dict):
+        self.hidden_type = hidden_type
+        self.treatment_feature = None
+        self.treatment_value = None
+        self.para_dict = para_dict
+        self.init_dict = init_dict
+        self.time_offset = time_offset
+        self.treatment_time = None
+        self.stat_dict = stat_dict
+        self.name_id_dict = {'a': 0, 'tau_p': 1, 'tau_o': 2, 'n': 3, 'c': 4}
+
+    def set_treatment(self, treatment_feature, treatment_time, treatment_value):
+        self.treatment_time = treatment_time - self.time_offset
+        self.treatment_feature = treatment_feature
+        self.treatment_value = treatment_value
+
+    def derivative(self, t, y):
+        assert isinstance(self.hidden_type, bool)
+        para = self.para_dict
+        if t > self.treatment_time:
+            idx = self.name_id_dict[self.treatment_feature]
+            y[idx] = self.treatment_value
+
+        if self.hidden_type:
+            derivative = [
+                para['lambda_a_beta'] * y[0] * (1 - y[0] / para['k_a_beta']),
+                para['lambda_tau'] * y[0] * (1 - y[1] / para['k_tau']),
+                para['lambda_tau_o'],
+                (para['lambda_ntau_o'] * y[2] + para['lambda_ntau_p'] * y[1]) * (1 - y[3] / para['k_n']),
+                (para['lambda_cn'] * y[3] + 0.4 * para['lambda_ctau'] * (y[1] + y[2])) * (1 - y[4] / para['k_c'])
+            ]
+        else:
+            derivative = [
+                para['lambda_a_beta'] * y[0] * (1 - y[0] / para['k_a_beta']),
+                para['lambda_tau'] * y[0] * (1 - y[1] / para['k_tau']),
+                para['lambda_tau_o'],
+                (para['lambda_ntau_o'] * y[2] + para['lambda_ntau_p'] * y[1]) * (1 - y[3] / para['k_n']),
+                (para['lambda_cn'] * y[3] + para['lambda_ctau'] * y[1]) * (1 - y[4] / para['k_c'])
+            ]
+
+        if t > self.treatment_time:
+            derivative[self.name_id_dict[self.treatment_feature]] = 0
+        return derivative
+
+    def inference(self, time_list):
+        init = self.init_dict
+        initial_state = [init['a'], init['tau_p'], init['tau_o'], init['n'], init['c']]
+
+        time_list = [item - self.time_offset for item in time_list]
+        result_list = []
+        for visit_time in time_list:
+            t_span = 0, visit_time
+            full_result = solve_ivp(self.derivative, t_span, initial_state)
+            result = full_result.y[:, -1]
+            result_list.append(result)
+
+        ordered_list = self.reorganize(result_list)
+        return ordered_list
+
+    def reorganize(self, result_list):
+        # 由于数据中对特征的排序是按照字母顺序排的，因此这里要重新排序
+        # 包括要拿掉数据中观测不到的数据
+        a_list = [(item[0]-self.stat_dict['a'][0])/self.stat_dict['a'][1] for item in result_list]
+        tau_p_list = [(item[1]-self.stat_dict['tau_p'][0])/self.stat_dict['tau_p'][1] for item in result_list]
+        tau_o_list = [(item[2]-self.stat_dict['tau_o'][0])/self.stat_dict['tau_o'][1] for item in result_list]
+        n_list = [(item[3]-self.stat_dict['n'][0])/self.stat_dict['n'][1] for item in result_list]
+        c_list = [(item[4]-self.stat_dict['c'][0])/self.stat_dict['c'][1] for item in result_list]
+
+        if self.hidden_type:
+            return_list = [
+                a_list, c_list, n_list, tau_p_list
+            ]
+        else:
+            return_list = [
+                a_list, c_list, n_list, tau_o_list, tau_p_list
+            ]
+        return np.array(return_list)
+

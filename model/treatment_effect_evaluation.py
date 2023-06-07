@@ -1,5 +1,5 @@
 import torch
-from default_config import logger
+from default_config import logger, treatment_result_folder
 from torch.nn.utils.rnn import pad_sequence
 from torch import FloatTensor, chunk, cat, randn, LongTensor, unsqueeze, stack, squeeze
 from geomloss import SamplesLoss
@@ -10,7 +10,7 @@ from torchdiffeq import odeint_adjoint as odeint
 
 class TreatmentEffectEstimator(Module):
     def __init__(self, trained_model, dataset_name, device, mode, sample_multiplier, batch_size, input_size,
-                 preset_graph, clamp_edge_threshold, treatment_idx, time_offset, input_type_list):
+                 preset_graph, clamp_edge_threshold, treatment_idx, time_offset, input_type_list, treatment_feature):
         """
         此处 mode代表了与干预直接关联时，遇到了有confounder时的处理策略
         这里根据oracle graph的不同，其实可能存在三种可能的情况
@@ -32,6 +32,7 @@ class TreatmentEffectEstimator(Module):
         self.batch_size = batch_size
         self.device = device
         self.input_type_list = input_type_list
+        self.treatment_feature = treatment_feature
         self.treatment_idx = treatment_idx
         self.samples_loss = SamplesLoss('sinkhorn', p=1, blur=0.01, scaling=0.9, backend='tensorized')
         self.trained_model = trained_model.to(device).requires_grad_(False)

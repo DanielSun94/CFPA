@@ -112,13 +112,15 @@ class SequentialVisitDataset(Dataset):
         format_check(dataset)
         self.id_name_dict, self.name_id_dict = id_map(dataset[0]['observation'][0])
         self.dataset = dataset
-        self.obs_list, self.true_list, self.time_list, self.id_list = self.data_split(dataset)
+        self.obs_list, self.true_list, self.time_list, self.id_list, self.init_list, self.para_list = \
+            self.data_split(dataset)
 
     def data_split(self, data):
-        obs_list, true_list, time_list, id_list = [], [], [], []
+        obs_list, true_list, time_list, id_list, init_list, para_list = [], [], [], [], [], []
         for sample in data:
             single_obs_sequence_data, single_sequence_time, single_true_sequence_data = [], [], []
             observation_sequence, true_sequence, sample_id = sample['observation'], sample['true_value'], sample['id']
+            init, para = sample['init'], sample['para']
             observation_sequence = sorted(observation_sequence, key=lambda x: x['visit_time'], reverse=False)
             true_sequence = sorted(true_sequence, key=lambda x: x['visit_time'], reverse=False)
             for single_obs_visit in observation_sequence:
@@ -143,13 +145,16 @@ class SequentialVisitDataset(Dataset):
             obs_list.append(single_obs_sequence_data)
             true_list.append(single_true_sequence_data)
             time_list.append(single_sequence_time)
-        return obs_list, true_list, time_list, id_list
+            init_list.append(init)
+            para_list.append(para)
+        return obs_list, true_list, time_list, id_list, init_list, para_list
 
     def __len__(self):
         return len(self.obs_list)
 
     def __getitem__(self, index):
-        return self.obs_list[index], self.true_list[index], self.time_list[index], self.id_list[index]
+        return self.obs_list[index], self.true_list[index], self.time_list[index], self.id_list[index], \
+            self.init_list[index], self.para_list[index]
 
 
 class SingleVisitDataloader(DataLoader):
@@ -187,6 +192,8 @@ class SequentialVisitDataloader(DataLoader):
         time_list = [item[2] for item in data]
         observed_list = [item[0] for item in data]
         true_list = [item[1] for item in data]
+        init_list = [item[4] for item in data]
+        para_list = [item[5] for item in data]
         valid_length_list = [len(item) for item in time_list]
         # for the randint and slice character, the prediction idx need to minus one, while the observation does not
         # 此处的min_obs_time从0起数
@@ -206,21 +213,26 @@ class SequentialVisitDataloader(DataLoader):
             predict_feature_list.append(true_value_list[sample_obs_idx:])
             available_feature_list.append(obs_value_list[:sample_obs_idx])
             available_time_list.append(sample_time_list[:sample_obs_idx])
-        return predict_time_list, predict_feature_list, available_time_list, available_feature_list, id_list
+        return predict_time_list, predict_feature_list, available_time_list, available_feature_list, id_list, \
+            init_list, para_list
 
     def collate_fn(self, data):
-        predict_time_list, predict_feature_list, available_time_list, available_feature_list, id_list = \
-            self.reorganize_batch_data(data)
+        predict_time_list, predict_feature_list, available_time_list, available_feature_list, id_list, init_list, \
+            para_list = self.reorganize_batch_data(data)
         data = []
-        for pred_time, pred_feature, avail_time, ava_feature, sample_id in \
-                zip(predict_time_list, predict_feature_list, available_time_list, available_feature_list, id_list):
-            data.append([pred_time, pred_feature, avail_time, ava_feature, sample_id])
+        for pred_time, pred_feature, avail_time, ava_feature, sample_id, init, para in \
+                zip(predict_time_list, predict_feature_list, available_time_list, available_feature_list, id_list,
+                    init_list, para_list):
+            data.append([pred_time, pred_feature, avail_time, ava_feature, sample_id, init, para])
 
         input_feature_list, input_time_list, input_mask_list, label_feature_list, label_time_list, label_mask_list, \
-            type_list, input_len_list, label_len_list, sample_id_list = [], [], [], [], [], [], [], [], [], []
+            type_list, input_len_list, label_len_list, sample_id_list, input_init_list, input_para_list = \
+            [], [], [], [], [], [], [], [], [], [], [], []
         for item in data:
-            pred_time, pred_feature, avail_time, avail_feature, sample_id = item
+            pred_time, pred_feature, avail_time, avail_feature, sample_id, init, para = item
             sample_id_list.append(sample_id)
+            input_init_list.append(init)
+            input_para_list.append(para)
 
             input_feature_mask = np.array(avail_feature) == missing_flag_num
             input_feature = (1 - input_feature_mask) * np.array(avail_feature)
@@ -285,7 +297,8 @@ class SequentialVisitDataloader(DataLoader):
         label_mask_list = [item.to(self.device) for item in label_mask_list]
         type_list = [item.to(self.device) for item in type_list]
         return concat_input, input_feature_list, input_time_list, input_mask_list, label_feature_list,\
-            label_time_list, label_mask_list, type_list, input_len_list, label_len_list, sample_id_list
+            label_time_list, label_mask_list, type_list, input_len_list, label_len_list, sample_id_list, \
+            input_init_list, input_para_list
 
 
 def main():

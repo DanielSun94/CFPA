@@ -5,7 +5,6 @@ from default_config import logger
 from torch import chunk, stack, squeeze, cat, transpose, eye, ones, no_grad, matmul, abs, sum, \
     trace, tanh, unsqueeze, LongTensor, randn, permute
 from torch.linalg import matrix_exp
-from torch.nn.functional import gumbel_softmax
 from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, BCEWithLogitsLoss, Sigmoid
 from torch.nn.utils.rnn import pad_sequence
 from torchdiffeq import odeint_adjoint as odeint
@@ -72,7 +71,6 @@ class CausalTrajectoryPrediction(Module):
             for item in label_time_list:
                 for i in range(self.sample_multiplier):
                     label_time_list_multiplier.append(item)
-
             for init_value, time in zip(init_value_list, label_time_list_multiplier):
                 time = (time - self.time_offset).to(self.device)
                 predict_value = squeeze(odeint(self.causal_derivative, init_value, time))
@@ -120,9 +118,9 @@ class CausalTrajectoryPrediction(Module):
                 predict_loss_sum = predict_loss_sum + predict_loss
                 reconstruct_loss_sum = reconstruct_loss + reconstruct_loss_sum
 
-        loss_sum = loss_sum / len(prediction_list)
-        reconstruct_loss_sum = reconstruct_loss_sum / len(prediction_list)
-        predict_loss_sum = predict_loss_sum / len(prediction_list)
+        loss_sum = loss_sum / len(prediction_list) / len(self.input_type_list)
+        reconstruct_loss_sum = reconstruct_loss_sum / len(prediction_list) / len(self.input_type_list)
+        predict_loss_sum = predict_loss_sum / len(prediction_list) / len(self.input_type_list)
         output_dict = {
             'predict_value_list': prediction_list,
             'label_type_list': type_multi,

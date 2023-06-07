@@ -63,7 +63,6 @@ def main():
         model.generate_dataset(train_sample_size, valid_sample_size, test_sample_size, personalized_type,
                                group, sample_type)
     oracle_graph = model.get_oracle_graph()
-    type_list = model.get_feature_type()
 
     save_name = 'sim_hao_model_hidden_{}_group_{}_personal_{}_type_{}.pkl'\
         .format(use_hidden, group, personalized_type, sample_type)
@@ -78,7 +77,7 @@ def main():
             },
             'stat_dict': stat_dict,
             'oracle_graph': oracle_graph,
-            'type_list': type_list
+            'feature_type_list': model.get_type_list()
         },
         open(os.path.join(setting_dict['save_data_folder'], save_name), 'wb')
     )
@@ -154,7 +153,7 @@ class HaoModel(object):
         return trajectory
 
     @staticmethod
-    def get_feature_type():
+    def get_type_list():
         return {'a': 'c', 'tau_p': 'c', 'tau_o': 'c', 'n': 'c', 'c': 'c'}
 
     def get_oracle_graph(self):
@@ -339,18 +338,21 @@ class HaoModel(object):
             dataset.append(trajectory)
         return dataset
 
-    def post_preprocess(self, train, valid, test):
+    def post_preprocess(self, train, valid, test, transformer=True):
         true_dict = {'a': [], 'tau_p': [], 'tau_o': [], 'n': [], 'c': []}
-        for data_fraction in train, valid, test:
-            for sample in data_fraction:
-                true_value = sample['true_value']
-                for visit in true_value:
-                    for key in visit:
-                        if key in true_dict:
-                            true_dict[key].append(visit[key])
-        true_stat_dict = dict()
-        for key in true_dict:
-            true_stat_dict[key] = np.mean(true_dict[key]), np.std(true_dict[key])
+        if transformer:
+            for data_fraction in train, valid, test:
+                for sample in data_fraction:
+                    true_value = sample['true_value']
+                    for visit in true_value:
+                        for key in visit:
+                            if key in true_dict:
+                                true_dict[key].append(visit[key])
+            true_stat_dict = dict()
+            for key in true_dict:
+                true_stat_dict[key] = np.mean(true_dict[key]), np.std(true_dict[key])
+        else:
+            true_stat_dict = {'a': [0, 1], 'tau_p': [0, 1], 'tau_o': [0, 1], 'n': [0, 1], 'c': [0, 1]}
 
         new_train, new_valid, new_test = [], [], []
         for origin, new in zip([train, valid, test], [new_train, new_valid, new_test]):

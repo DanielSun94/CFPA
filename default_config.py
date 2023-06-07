@@ -11,6 +11,7 @@ script_path = os.path.split(os.path.realpath(__file__))[0]
 sim_data_folder = os.path.join(script_path, 'resource', 'simulated_data')
 adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_folder')
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
+treatment_result_folder = os.path.join(script_path, 'resource', 'treatment_result')
 
 dataset = 'hao_true'
 distribution_mode = 'uniform'
@@ -22,6 +23,8 @@ if not os.path.exists(adjacency_mat_folder):
     os.makedirs(adjacency_mat_folder)
 if not os.path.exists(ckpt_folder):
     os.makedirs(ckpt_folder)
+if not os.path.exists(treatment_result_folder):
+    os.makedirs(treatment_result_folder)
 
 if dataset == 'hao_true':
     data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_{}_group_lmci_personal_2_type_{}.pkl'.format(
@@ -94,7 +97,7 @@ default_config = {
     'oracle_graph_flag': 'True',
     'mode': 'full_confounded',
     'sample_multiplier': 8,
-    'treatment_refit_max_iter': 41,
+    'treatment_refit_max_iter': 21,
     'treatment_refit_max_epoch': 100,
     'treatment_refit_converge_threshold': 10**-4,
     'treatment_eval_iter_interval': 20,
@@ -225,7 +228,7 @@ for item in config_list:
 
 # other config
 oracle_graph_dict ={
-    'predict.CPA.hao_true.ADMG.ancestral.20230323050007.74.3000.model': {
+    'predict.CPA.hao_true.ADMG.ancestral.20230330041633.32.1300.model': {
             'dag': {
                 'a': {'a': 0, 'tau_p': 1, 'n': 0, 'c': 0},
                 'tau_p': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1},

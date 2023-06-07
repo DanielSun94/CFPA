@@ -6,51 +6,6 @@ from torch.optim import Adam
 from util import get_data_loader, save_model, LagrangianMultiplierStateUpdater, predict_performance_evaluation
 
 
-def unit_test(argument):
-    batch_first = True if argument['batch_first'] == 'True' else False
-    time_offset = argument['time_offset']
-    data_path = argument['data_path']
-    reconstruct_input = True if argument['reconstruct_input'] == 'True' else False
-    batch_size = argument['batch_size']
-    mediate_size = argument['mediate_size']
-    minimum_observation = argument['minimum_observation']
-    input_size = argument['input_size']
-    mask_tag = argument['mask_tag']
-    hidden_size = argument['hidden_size']
-    predict_label = True if argument['predict_label'] == 'True' else False
-    graph_type = argument['graph_type']
-    constraint = argument['constraint_type']
-    clamp_edge_threshold = argument['clamp_edge_threshold']
-    device = argument['device']
-    bidirectional = argument['init_net_bidirectional']
-    dataset_name = argument['dataset_name']
-    mode = argument['distribution_mode']
-
-    data = pickle.load(open(data_path, 'rb'))['data']['train']
-
-    model = CausalTrajectoryPrediction(graph_type=graph_type, constraint=constraint, input_size=input_size,
-                                       hidden_size=hidden_size, batch_first=batch_first, mediate_size=mediate_size,
-                                       time_offset=time_offset, clamp_edge_threshold=clamp_edge_threshold,
-                                       bidirectional=bidirectional, device=device, dataset_name=dataset_name,
-                                       mode=mode)
-    dataset = SequentialVisitDataset(data)
-    sampler = RandomSampler(dataset)
-    dataloader = SequentialVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
-                                           minimum_observation=minimum_observation, device=device,
-                                           reconstruct_input=reconstruct_input, predict_label=predict_label)
-    optimizer = Adam(model.parameters())
-
-    for batch in dataloader:
-        output_dict = model(batch)
-        loss = output_dict['loss']
-        constraint = model.calculate_constraint()
-        loss = loss - 1 * constraint - 1/2 * constraint**2
-        loss.backward()
-        optimizer.step()
-    logger.info('success')
-
-
-
 def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, argument):
     max_epoch = argument['max_epoch']
     max_iteration = argument['max_iteration']
@@ -77,7 +32,8 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             if constraint < model_converge_threshold:
                 return model
 
-            input_list, _, _, _, label_feature_list, label_time_list, label_mask_list, label_type_list, _, _, _ = batch
+            input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
+            label_mask_list, label_type_list = batch[6], batch[7]
             predict_value_list = model(input_list, label_time_list)
             output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list, label_type_list)
             loss = output_dict['loss']
@@ -139,7 +95,7 @@ def framework(argument):
     lagrangian_converge_threshold = argument['lagrangian_converge_threshold_predict']
     update_window = argument['update_window_predict']
 
-    dataloader_dict, name_id_dict, oracle_graph, id_type_list = get_data_loader(
+    dataloader_dict, name_id_dict, oracle_graph, id_type_list, _ = get_data_loader(
         dataset_name, data_path, batch_size, mask_tag, minimum_observation, reconstruct_input, predict_label,
         device=device)
 
@@ -147,6 +103,8 @@ def framework(argument):
     logger.info(name_id_dict)
     logger.info('oracle')
     logger.info(oracle_graph)
+    logger.info('id type list')
+    logger.info(id_type_list)
 
 
     train_dataloader = dataloader_dict['train']
@@ -165,7 +123,6 @@ def framework(argument):
 
     model = train(train_dataloader, validation_dataloader, model, multiplier_updater, optimizer, argument)
     predict_performance_evaluation(model, test_dataloader, 'test')
-    print('')
 
 
 if __name__ == '__main__':
