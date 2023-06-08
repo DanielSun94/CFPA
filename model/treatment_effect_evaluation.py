@@ -170,7 +170,8 @@ class TreatmentEffectEstimator(Module):
 
         trained_model = self.trained_model
         trained_model.set_sample_multiplier(self.sample_multiplier)
-        # 注意，oracle要求time是一个列表，treatment阶段一定是uniform，因为random无意义
+
+        # 我们只允许对模拟数据开展反事实推断
         assert trained_model.mode == 'uniform'
         oracle_predict_value = trained_model(concat_input_list, [time])
         oracle_predict_value = stack(oracle_predict_value, dim=0)

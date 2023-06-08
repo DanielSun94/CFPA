@@ -3,7 +3,7 @@ if __name__ == '__main__':
 import os
 from default_config import logger
 from torch import chunk, stack, squeeze, cat, transpose, eye, ones, no_grad, matmul, abs, sum, \
-    trace, tanh, unsqueeze, LongTensor, randn, permute
+    trace, tanh, unsqueeze, LongTensor, randn, permute, FloatTensor
 from torch.linalg import matrix_exp
 from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, BCEWithLogitsLoss, Sigmoid
 from torch.nn.utils.rnn import pad_sequence
@@ -12,16 +12,17 @@ from datetime import datetime
 import csv
 
 
-class CausalTrajectoryPrediction(Module):
+class TrajectoryPrediction(Module):
     def __init__(self, graph_type: str, constraint: str, input_size: int, hidden_size: int, batch_first: bool,
                  mediate_size: int, time_offset: int, clamp_edge_threshold: float, device: str, bidirectional: str,
-                 dataset_name:str, mode:str, input_type_list: list):
+                 dataset_name:str, mode:str, input_type_list: list, causal_derivative_flag: str):
         super().__init__()
         assert graph_type == 'DAG' or graph_type == 'ADMG'
         assert (graph_type == 'DAG' and constraint == 'default') or (constraint in {'ancestral', 'bow-free', 'arid'})
         assert bidirectional == 'True' or bidirectional == 'False'
         # mode指代输入的数据的时间间隔是固定的还是随机的，如果是固定的可以用序列化处理，随机的必须一条一条算
         assert mode == 'uniform' or 'random'
+        assert causal_derivative_flag == "True" or causal_derivative_flag == "False"
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.graph_type = graph_type
@@ -34,6 +35,7 @@ class CausalTrajectoryPrediction(Module):
         self.device = device
         self.init_net_bidirectional = True if bidirectional == 'True' else False
         self.mode = mode
+        self.causal_derivative_flag = True if causal_derivative_flag == "True" else False
 
         self.mse_loss_func = MSELoss(reduction='none')
         self.cross_entropy_func = BCEWithLogitsLoss(reduction='none')
@@ -42,12 +44,34 @@ class CausalTrajectoryPrediction(Module):
                                  bidirectional=self.init_net_bidirectional)
         # 生成的分别是init value的均值与方差
         self.projection_net = Sequential(Linear(hidden_size, hidden_size), ReLU(), Linear(hidden_size, input_size * 2))
-        self.causal_derivative = CausalDerivative(graph_type, constraint, input_size, hidden_size, mediate_size,
-                                                  dataset_name, device, clamp_edge_threshold, input_type_list)
+        if self.causal_derivative_flag:
+            self.derivative = CausalDerivative(graph_type, constraint, input_size, hidden_size, mediate_size,
+                                           dataset_name, device, clamp_edge_threshold, input_type_list)
+        else:
+            self.derivative = OrdinaryDerivative(input_size, hidden_size, device)
 
         self.init_network.to(device)
         self.projection_net.to(device)
-        self.causal_derivative.to(device)
+        self.derivative.to(device)
+
+        self.consistent_feature = self.get_consistent_feature_flag()
+
+    def get_consistent_feature_flag(self):
+        input_type_list = self.input_type_list
+        idx = 0
+        for item in input_type_list:
+            if item == 'continuous':
+                idx += 0
+            elif item == 'discrete':
+                idx += 1
+            else:
+                raise ValueError('')
+        if idx == len(input_type_list):
+            return 'discrete'
+        elif idx == 0:
+            return 'continuous'
+        else:
+            return 'none'
 
     def set_sample_multiplier(self, num):
         self.sample_multiplier = num
@@ -73,62 +97,92 @@ class CausalTrajectoryPrediction(Module):
                     label_time_list_multiplier.append(item)
             for init_value, time in zip(init_value_list, label_time_list_multiplier):
                 time = (time - self.time_offset).to(self.device)
-                predict_value = squeeze(odeint(self.causal_derivative, init_value, time))
+                predict_value = squeeze(odeint(self.derivative, init_value, time))
                 predict_value_list.append(predict_value)
         else:
             assert self.mode == 'uniform'
             time = (label_time_list[0] - self.time_offset).to(self.device)
-            predict_value = odeint(self.causal_derivative, init_value, time)
+            predict_value = odeint(self.derivative, init_value, time)
             predict_value = permute(predict_value, [1, 0, 2])
             predict_value = chunk(predict_value, predict_value.shape[0], dim=0)
             predict_value_list = []
             for i in range(len(predict_value)):
                 predict_value_list.append(squeeze(predict_value[i], dim=0))
+        # 输出的predict_value_list是multiplier*batch size长度的序列
         return predict_value_list
 
     def loss_calculate(self, prediction_list, feature_list, mask_list, type_list):
-        mask_multi, type_multi, label_multi = [], [], []
-        for origin, multi in zip([feature_list, mask_list, type_list], [label_multi, mask_multi, type_multi]):
-            for item in origin:
-                for i in range(self.sample_multiplier):
-                    multi.append(item)
+        # 按照设计，这个函数只有在预测阶段有效，预测阶段的multiplier必须为1
+        assert self.sample_multiplier == 1
+        assert len(prediction_list[0].shape) == 2 and prediction_list[0].shape[1] == self.input_size
+        # 这里必须做双循环，因为random模式下每个sample是不定长的，在当前设计下不能tensor化
 
-        loss_sum, predict_loss_sum, reconstruct_loss_sum = 0, 0, 0
-        for predict, label, mask, type_ in zip(prediction_list, label_multi, mask_multi, type_multi):
-            for i in range(len(self.input_type_list)):
-                data_type = self.input_type_list[i]
-                if data_type == 'continuous':
-                    sample_loss = self.mse_loss_func(predict[:, i], label[:, i]) * (1 - mask[:, i])
-                elif data_type == 'discrete':
-                    sample_loss = self.cross_entropy_func(predict[:, i], label[:, i]) * (1 - mask[:, i])
-                else:
-                    raise ValueError('')
+        consistent_feature = self.consistent_feature
+        if self.mode == 'uniform' and consistent_feature != 'none':
+            if consistent_feature == 'continuous':
+                loss_func = self.mse_loss_func
+            elif consistent_feature == 'discrete':
+                loss_func = self.cross_entropy_func
+            else:
+                raise ValueError('')
+            prediction_list = stack(prediction_list, dim=0)
+            feature_list = stack(feature_list, dim=0)
+            mask_list = stack(mask_list, dim=0)
+            type_list = unsqueeze(stack(type_list, dim=0), dim=2)
 
-                reconstruct_loss = sample_loss * (type_ == 1).float()
-                reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
-                reconstruct_loss = reconstruct_loss.sum() / reconstruct_valid_ele_num
+            sample_loss = loss_func(prediction_list, feature_list) * (1 - mask_list)
+            reconstruct_loss = sample_loss * (type_list == 1).float()
+            predict_loss = sample_loss * (type_list == 2).float()
+            predict_valid_ele_num = (predict_loss != 0).sum()
+            reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
+            reconstruct_loss = reconstruct_loss.sum() / reconstruct_valid_ele_num
+            predict_loss = predict_loss.sum() / predict_valid_ele_num
+            loss = (reconstruct_loss + predict_loss) / 2
+            output_dict = {
+                'predict_value_list': prediction_list,
+                'label_type_list': type_list,
+                'label_feature_list': feature_list,
+                'loss': loss,
+                'reconstruct_loss': reconstruct_loss.detach(),
+                'predict_loss': predict_loss.detach()
+            }
+        else:
+            loss_sum, predict_loss_sum, reconstruct_loss_sum = 0, 0, 0
+            for predict, label, mask, type_ in zip(prediction_list, feature_list, mask_list, type_list):
+                for i in range(len(self.input_type_list)):
+                    data_type = self.input_type_list[i]
+                    if data_type == 'continuous':
+                        sample_loss = self.mse_loss_func(predict[:, i], label[:, i]) * (1 - mask[:, i])
+                    elif data_type == 'discrete':
+                        sample_loss = self.cross_entropy_func(predict[:, i], label[:, i]) * (1 - mask[:, i])
+                    else:
+                        raise ValueError('')
 
-                predict_loss = sample_loss * (type_ == 2).float()
-                predict_valid_ele_num = (predict_loss != 0).sum()
-                predict_loss = predict_loss.sum() / predict_valid_ele_num
+                    reconstruct_loss = sample_loss * (type_ == 1).float()
+                    reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
+                    reconstruct_loss = reconstruct_loss.sum() / reconstruct_valid_ele_num
 
-                loss = (reconstruct_loss + predict_loss) / 2
+                    predict_loss = sample_loss * (type_ == 2).float()
+                    predict_valid_ele_num = (predict_loss != 0).sum()
+                    predict_loss = predict_loss.sum() / predict_valid_ele_num
 
-                loss_sum = loss + loss_sum
-                predict_loss_sum = predict_loss_sum + predict_loss
-                reconstruct_loss_sum = reconstruct_loss + reconstruct_loss_sum
+                    loss = (reconstruct_loss + predict_loss) / 2
 
-        loss_sum = loss_sum / len(prediction_list) / len(self.input_type_list)
-        reconstruct_loss_sum = reconstruct_loss_sum / len(prediction_list) / len(self.input_type_list)
-        predict_loss_sum = predict_loss_sum / len(prediction_list) / len(self.input_type_list)
-        output_dict = {
-            'predict_value_list': prediction_list,
-            'label_type_list': type_multi,
-            'label_feature_list': label_multi,
-            'loss': loss_sum,
-            'reconstruct_loss': reconstruct_loss_sum.detach(),
-            'predict_loss': predict_loss_sum.detach()
-        }
+                    loss_sum = loss + loss_sum
+                    predict_loss_sum = predict_loss_sum + predict_loss
+                    reconstruct_loss_sum = reconstruct_loss + reconstruct_loss_sum
+
+            loss_sum = loss_sum / len(prediction_list) / len(self.input_type_list)
+            reconstruct_loss_sum = reconstruct_loss_sum / len(prediction_list) / len(self.input_type_list)
+            predict_loss_sum = predict_loss_sum / len(prediction_list) / len(self.input_type_list)
+            output_dict = {
+                'predict_value_list': prediction_list,
+                'label_type_list': type_list,
+                'label_feature_list': feature_list,
+                'loss': loss_sum,
+                'reconstruct_loss': reconstruct_loss_sum.detach(),
+                'predict_loss': predict_loss_sum.detach()
+            }
         return output_dict
 
     def predict_init_value(self, concat_input):
@@ -147,20 +201,68 @@ class CausalTrajectoryPrediction(Module):
         return value_init
 
     def calculate_constraint(self):
-        return self.causal_derivative.graph_constraint()
+        return self.derivative.graph_constraint()
 
     def clamp_edge(self):
-        self.causal_derivative.clamp_edge(self.clamp_edge_threshold)
+        self.derivative.clamp_edge(self.clamp_edge_threshold)
 
     def dump_graph(self, idx, folder=None):
-        return self.causal_derivative.print_adjacency(idx, folder)
+        return self.derivative.print_adjacency(idx, folder)
 
     def generate_binary_graph(self, threshold):
-        return self.causal_derivative.generate_binary_adjacency(threshold)
+        return self.derivative.generate_binary_adjacency(threshold)
+
+
+class Derivative(Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, t, inputs):
+        raise NotImplementedError
+
+    def generate_binary_adjacency(self, threshold):
+        raise NotImplementedError
+
+    def print_adjacency(self, iter_idx, write_folder=None):
+        raise NotImplementedError
+
+    def clamp_edge(self, clamp_edge_threshold):
+        raise NotImplementedError
+
+    def graph_constraint(self):
+        raise NotImplementedError
+
+    def calculate_connectivity_mat(self, module_list, absolute):
+        raise NotImplementedError
+
+
+class OrdinaryDerivative(Derivative):
+    def __init__(self, input_size, hidden_size, device):
+        super().__init__()
+        self.device = device
+        self.model = Sequential(Linear(input_size, hidden_size), ReLU(), Linear(hidden_size, input_size)).to(device)
+
+    def forward(self, _, inputs):
+        return self.model(inputs)
+
+    def generate_binary_adjacency(self, threshold):
+        return '0'
+
+    def print_adjacency(self, iter_idx, write_folder=None):
+        return '0'
+
+    def clamp_edge(self, clamp_edge_threshold):
+        return 0
+
+    def graph_constraint(self):
+        return FloatTensor([0]).to(self.device)
+
+    def calculate_connectivity_mat(self, module_list, absolute):
+        return FloatTensor([0])
 
 
 
-class CausalDerivative(Module):
+class CausalDerivative(Derivative):
     def __init__(self, graph_type: str, constraint_type: str, input_size: int, hidden_size: int, mediate_size: int,
                  dataset_name: str, device: str, clamp_edge_threshold:float, input_type_list:list):
         super().__init__()
@@ -289,7 +391,7 @@ class CausalDerivative(Module):
 
         if write_folder is not None:
             now = datetime.now().strftime("%Y%m%d%H%M%S")
-            file_name = '{}.{}.{}.{}.{}.csv'\
+            file_name = 'CTP.{}.{}.{}.{}.{}.csv'\
                 .format(self.dataset_name, self.graph_type, self.constraint_type, iter_idx, now)
             write_path = os.path.join(write_folder, file_name)
             with open(write_path, 'w', encoding='utf-8-sig', newline='') as f:

@@ -13,9 +13,13 @@ adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_fold
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_folder = os.path.join(script_path, 'resource', 'treatment_result')
 
-dataset = 'hao_true'
+dataset = 'hao_true_lmci'
 distribution_mode = 'uniform'
-device = 'cuda:7'
+device = 'cuda:2'
+model = 'ODE'
+causal_derivative_flag = "False"
+
+assert model in {'ODE'}
 
 if not os.path.exists(sim_data_folder):
     os.makedirs(sim_data_folder)
@@ -26,14 +30,14 @@ if not os.path.exists(ckpt_folder):
 if not os.path.exists(treatment_result_folder):
     os.makedirs(treatment_result_folder)
 
-if dataset == 'hao_true':
+if dataset == 'hao_true_lmci':
     data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_{}_group_lmci_personal_2_type_{}.pkl'.format(
         'False' if 'false' in dataset else 'True', distribution_mode
     ))
     time_offset = 50
     minimum_observation = 4
     input_size = 4
-elif dataset == 'hao_false':
+elif dataset == 'hao_true_lmci':
     data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_{}_group_lmci_personal_2_type_{}.pkl'.format(
         'False' if 'false' in dataset else 'True', distribution_mode
     ))
@@ -52,6 +56,8 @@ missing_flag_num = -99999
 
 default_config = {
     'process_name': 'verification',
+    'model': model,
+    'causal_derivative_flag': causal_derivative_flag,
 
     # dataset config
     'dataset_name': dataset,
@@ -124,6 +130,8 @@ default_config = {
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--process_name', help='', default=default_config['process_name'], type=str)
+parser.add_argument('--model_name', help='', default=default_config['model'], type=str)
+parser.add_argument('--causal_derivative_flag', help='', default=default_config['causal_derivative_flag'], type=str)
 
 # dataset config
 parser.add_argument('--dataset_name', help='', default=default_config['dataset_name'], type=str)
