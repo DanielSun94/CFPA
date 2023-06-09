@@ -15,9 +15,9 @@ treatment_result_folder = os.path.join(script_path, 'resource', 'treatment_resul
 
 dataset = 'hao_true_lmci'
 distribution_mode = 'uniform'
-device = 'cuda:2'
+device = 'cuda:0'
 model = 'ODE'
-causal_derivative_flag = "False"
+causal_derivative_flag = "True"
 
 assert model in {'ODE'}
 
@@ -83,7 +83,7 @@ default_config = {
     "batch_size": 512,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
-    "learning_rate": 0.01,
+    "learning_rate": 0.001,
     "eval_iter_interval": 20,
     "eval_epoch_interval": -1,
     "device": device,
@@ -98,15 +98,15 @@ default_config = {
     # treatment
     'treatment_clamp_edge_threshold': 10**-4,
     'treatment_feature': 'n',
-    'treatment_time': 52,
-    'treatment_value': 5,
+    'treatment_time': 55.5,
+    'treatment_value': 0,
     'oracle_graph_flag': 'True',
     'mode': 'full_confounded',
     'sample_multiplier': 8,
-    'treatment_refit_max_iter': 21,
-    'treatment_refit_max_epoch': 100,
+    'treatment_refit_max_iter': 1000,
+    'treatment_refit_max_epoch': 1000,
     'treatment_refit_converge_threshold': 10**-4,
-    'treatment_eval_iter_interval': 20,
+    'treatment_eval_iter_interval': 100,
 
     # augmented Lagrangian predict phase
     "init_lambda_predict": 10**-2,

@@ -505,7 +505,9 @@ class CausalDerivative(Derivative):
                 bi_constraint = self.greenery(directed_connect_mat, bi_connect_mat)
             else:
                 raise ValueError('')
-            constraint = dag_constraint + bi_constraint
+
+            bi_symmetry = sum((bi_connect_mat - transpose(bi_connect_mat, 1, 0)) ** 2)
+            constraint = dag_constraint + bi_constraint + 10 * bi_symmetry
         else:
             raise ValueError('')
         assert constraint >= 0
@@ -533,7 +535,7 @@ class CausalDerivative(Derivative):
         # Note, C_ij means the i predicts the j
         # 此处的正确性已经经过校验
         # 注意Linear是算的xA^T，而此处是A直接参与计算，相关的形式和arXiv 1906.02226应该是完全一致的
-        # 最后应该药转置
+        # 最后应该转置
         connect_mat = []
         for i in range(len(module_list)):
             prod = eye(len(module_list)).to(self.device)

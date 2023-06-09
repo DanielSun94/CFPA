@@ -43,9 +43,17 @@ def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
     dataset_name = argument['dataset_name']
     graph_type = argument['graph_type']
     constraint_type = argument['constraint_type']
+    causal = argument['causal_derivative_flag']
     now = datetime.now().strftime("%Y%m%d%H%M%S")
-    file_name = '{}.{}.{}.{}.{}.{}.{}.{}'.\
-        format(phase, model_name, dataset_name, graph_type, constraint_type, now, epoch_idx, iter_idx)
+
+    assert causal == 'True' or causal == 'False'
+
+    if causal == 'True':
+        file_name = '{}.{}.{}.causal_True.{}.{}.{}.{}.{}'.\
+            format(phase, model_name, dataset_name, graph_type, constraint_type, now, epoch_idx, iter_idx)
+    else:
+        file_name = '{}.{}.{}.causal_False.{}.{}.{}'. \
+            format(phase, model_name, dataset_name, now, epoch_idx, iter_idx)
     model_path = os.path.join(folder, file_name+'.model')
     save(model, model_path)
     config_path = os.path.join(folder, file_name+'.config')

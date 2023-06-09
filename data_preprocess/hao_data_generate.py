@@ -115,7 +115,8 @@ class HaoModel(object):
         self.__sample_info['uniform_interval'] = sample['uniform_interval']
         self.__sample_info['personalized_turb_1'] = sample['personalized_turbulence_coefficient_1']
         self.__sample_info['personalized_turb_2'] = sample['personalized_turbulence_coefficient_2']
-        self.__sample_info['noise_coefficient'] = sample['gaussian_noise_std_coefficient']
+        self.__sample_info['obs_noise_coefficient'] = sample['gaussian_observation_noise_std_coefficient']
+        self.__sample_info['derivative_noise_coefficient'] = sample['gaussian_derivative_noise_std_coefficient']
         self.__sample_info['unit'] = sample['unit']
         self.__sample_info['uniform'] = sample['distribution']
         for ((mean, std), info_dict) in \
@@ -135,13 +136,13 @@ class HaoModel(object):
                 std[key] = info_dict[key]['std']
 
     def __generate_trajectory(self, init_time, intervals, init_mean, init_std, para_mean, para_std, personalized,
-                              fraction, idx):
+                              fraction, idx, noise_coefficient):
         init, para = self.__personalized_parameter_generating(init_mean, init_std, para_mean, para_std, personalized)
         t_init = self.__sample_info['t_0']
         trajectory = {'init': init, 'para': para, 'observation': [], 'true_value': [], 'id': fraction+'_'+str(idx)}
         for item in intervals:
             visit_time = item + init_time
-            state = self.__calculate_state(init, para, visit_time, t_init)
+            state = self.__calculate_state(init, para, visit_time, t_init, noise_coefficient)
             observed_state = self.__add_noise(state, init_mean)
             observed_state['visit_time'] = visit_time
 
@@ -176,7 +177,7 @@ class HaoModel(object):
             }
         return oracle
 
-    def __calculate_state(self, init, para, visit_time, t_init):
+    def __calculate_state(self, init, para, visit_time, t_init, noise_coefficient):
         """
         calculate the model in a cascade manner, i.e., the a_eta, tau_p, tau_o, n, c
         the ode order strictly follow the page 5 of the paper.
@@ -222,6 +223,10 @@ class HaoModel(object):
                     (lambda_ntau_o * y[2] + lambda_ntau_p * y[1]) * (1 - y[3] / k_n),
                     (lambda_cn * y[3] + lambda_ctau * y[1]) * (1 - y[4] / k_c)
                 ]
+
+            noise = np.random.randn(5)
+            noise = noise * noise_coefficient * derivative
+            derivative = derivative + noise
             return derivative
 
         t_span = t_init, visit_time
@@ -284,7 +289,7 @@ class HaoModel(object):
         for key in sample_dict:
             noise_feature = -1
             while noise_feature <= 0:
-                standard_variance = init_mean[key] * self.__sample_info['noise_coefficient']
+                standard_variance = init_mean[key] * self.__sample_info['obs_noise_coefficient']
                 noise = random.gauss(0, standard_variance)
                 noise_feature = noise + sample_dict[key]
             noisy_sample[key] = noise_feature
@@ -315,6 +320,7 @@ class HaoModel(object):
         uniform_interval = self.__sample_info['uniform_interval']
         uniform_visit = self.__sample_info['uniform_visit']
         init_time = self.__sample_info['t_0']
+        noise_coefficient = self.__sample_info['derivative_noise_coefficient']
         init_mean, init_std, para_mean, para_std = self.__get_generating_info(group)
         dataset = []
         for i in range(sample_size):
@@ -334,7 +340,7 @@ class HaoModel(object):
             else:
                 raise ValueError('')
             trajectory = self.__generate_trajectory(init_time, visit_interval_list, init_mean, init_std, para_mean,
-                                                    para_std, personalized_type, faction, i)
+                                                    para_std, personalized_type, faction, i, noise_coefficient)
             dataset.append(trajectory)
         return dataset
 
