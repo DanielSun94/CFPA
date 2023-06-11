@@ -13,11 +13,12 @@ adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_fold
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_folder = os.path.join(script_path, 'resource', 'treatment_result')
 
-dataset = 'hao_true_lmci'
+dataset = 'hao_false_lmci'
 distribution_mode = 'uniform'
-device = 'cuda:0'
+device = 'cuda:6'
 model = 'ODE'
 causal_derivative_flag = "True"
+graph_type = 'ADMG'
 
 assert model in {'ODE'}
 
@@ -37,7 +38,7 @@ if dataset == 'hao_true_lmci':
     time_offset = 50
     minimum_observation = 4
     input_size = 4
-elif dataset == 'hao_true_lmci':
+elif dataset == 'hao_false_lmci':
     data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_{}_group_lmci_personal_2_type_{}.pkl'.format(
         'False' if 'false' in dataset else 'True', distribution_mode
     ))
@@ -72,7 +73,7 @@ default_config = {
     'distribution_mode': distribution_mode,
 
     # model config
-    "mediate_size": 2,
+    "mediate_size": 1,
     "hidden_size": 4,
     'init_pooling': 'mean',
     'init_net_bidirectional': "True",
@@ -93,7 +94,7 @@ default_config = {
 
     # graph setting
     "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
-    'graph_type': 'ADMG',  # valid value: ADMG, DAG
+    'graph_type': graph_type,  # valid value: ADMG, DAG
 
     # treatment
     'treatment_clamp_edge_threshold': 10**-4,

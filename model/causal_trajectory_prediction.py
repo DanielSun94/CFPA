@@ -5,7 +5,8 @@ from default_config import logger
 from torch import chunk, stack, squeeze, cat, transpose, eye, ones, no_grad, matmul, abs, sum, \
     trace, tanh, unsqueeze, LongTensor, randn, permute, FloatTensor
 from torch.linalg import matrix_exp
-from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, BCEWithLogitsLoss, Sigmoid
+from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, BCEWithLogitsLoss, Sigmoid, \
+    Parameter, Softmax
 from torch.nn.utils.rnn import pad_sequence
 from torchdiffeq import odeint_adjoint as odeint
 from datetime import datetime
@@ -274,6 +275,7 @@ class CausalDerivative(Derivative):
         self.directed_net_list = ParameterList()
         self.fuse_net_list = ParameterList()
         self.sigmoid = Sigmoid()
+        self.softmax = Softmax(dim=1)
         self.clamp_edge_threshold = clamp_edge_threshold
         self.dataset_name = dataset_name
         self.input_type_list = input_type_list
@@ -281,10 +283,9 @@ class CausalDerivative(Derivative):
         if graph_type == 'DAG':
             for i in range(input_size):
                 net_1 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
-                                   Linear(hidden_size, mediate_size, bias=False), ReLU())
+                                   Linear(hidden_size, 1, bias=False), ReLU())
                 self.directed_net_list.append(net_1)
-                net_3 = Sequential(Linear(mediate_size + input_size, hidden_size), ReLU(),
-                                   Linear(hidden_size, 1), ReLU())
+                net_3 = Parameter(randn(1, 1+input_size))
                 self.fuse_net_list.append(net_3)
 
             self.adjacency = {'dag': (ones([input_size, input_size]) - eye(input_size)).to(device)}
@@ -297,8 +298,7 @@ class CausalDerivative(Derivative):
                                    Linear(hidden_size, mediate_size, bias=False), ReLU())
                 self.directed_net_list.append(net_1)
                 self.bi_directed_net_list.append(net_2)
-                net_3 = Sequential(Linear(2 * mediate_size + input_size, hidden_size),
-                                   ReLU(), Linear(hidden_size, 1), ReLU())
+                net_3 = Parameter(randn(1, 2+input_size))
                 self.fuse_net_list.append(net_3)
             self.adjacency = {
                 'dag': (ones([input_size, input_size]) - eye(input_size)).to(device),
@@ -452,9 +452,11 @@ class CausalDerivative(Derivative):
                 input_1 = inputs_1_list[i]
                 input_2 = inputs_2_list[i]
 
+                coefficient_3 = unsqueeze(self.softmax(net_3), dim=0)
+
                 representation_1 = net_1(input_1)
                 representation_3 = cat([representation_1, input_2], dim=2)
-                derivative = net_3(representation_3)
+                derivative = sum(representation_3 * coefficient_3, dim=2)
                 output_feature.append(derivative)
         elif self.graph_type == 'ADMG':
             dag = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
@@ -471,17 +473,17 @@ class CausalDerivative(Derivative):
                 input_1_dag = inputs_1_dag_list[i]
                 input_1_bi = inputs_1_bi_list[i]
                 input_2 = inputs_2_list[i]
+                coefficient_3 = unsqueeze(self.softmax(net_3), dim=0)
 
                 representation_1 = net_1(input_1_dag)
                 representation_2 = net_2(input_1_bi)
                 representation_3 = cat([representation_1, representation_2, input_2], dim=2)
-                derivative = net_3(representation_3)
+                derivative = sum(representation_3 * coefficient_3, dim=2)
                 output_feature.append(derivative)
         else:
             raise ValueError('')
 
-        output_feature = cat(output_feature, dim=2)
-        output_feature = squeeze(output_feature, dim=1)
+        output_feature = cat(output_feature, dim=1)
         return output_feature
 
     def graph_constraint(self):
@@ -507,7 +509,11 @@ class CausalDerivative(Derivative):
                 raise ValueError('')
 
             bi_symmetry = sum((bi_connect_mat - transpose(bi_connect_mat, 1, 0)) ** 2)
-            constraint = dag_constraint + bi_constraint + 10 * bi_symmetry
+            bi_sparsity = sum(bi_connect_mat)
+            constraint = dag_constraint + bi_constraint
+            bi_symmetry = bi_symmetry / bi_symmetry.detach() * constraint.detach() * 0.1
+            bi_sparsity = bi_sparsity / bi_sparsity.detach() * constraint.detach() * 0.1
+            constraint = constraint + bi_symmetry + bi_sparsity
         else:
             raise ValueError('')
         assert constraint >= 0

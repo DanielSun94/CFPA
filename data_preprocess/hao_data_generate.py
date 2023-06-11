@@ -13,7 +13,7 @@ def main():
     default_config_path = os.path.abspath('../resource/hao_model_config.yaml')
     default_use_hidden = "True"
     default_group = 'lmci'
-    default_sample_type = 'uniform'
+    default_sample_type = 'random'
     default_train_sample_size = 20480
     default_valid_sample_size = 512
     default_test_sample_size = 512
@@ -201,19 +201,17 @@ class HaoModel(object):
         lambda_ctau = para['lambda_ctau']
         k_c = para['k_c']
 
-        def hao_dynamic_system(_, y):
-            """
-            if the use_hidden is true, we presume tau_o also influence the cognitive ability
-            the tau_o -> c connection (as well as the parameter) is purely hypothetical. It is only used for the
-            confounded identification test
-            """
+        t_span = t_init, visit_time
+        initial_state = [a_init, tau_p_init, tau_o_init, n_init, c_init]
+
+        def calculate_derivative(y):
             if use_hidden:
                 derivative = [
                     lambda_a_beta * y[0] * (1 - y[0] / k_a_beta),
                     lambda_tau * y[0] * (1 - y[1] / k_tau),
                     lambda_tau_o,
                     (lambda_ntau_o * y[2] + lambda_ntau_p * y[1]) * (1 - y[3] / k_n),
-                    (lambda_cn * y[3] + 0.4 * lambda_ctau * (y[1] + y[2])) * (1 - y[4] / k_c)
+                    (lambda_cn * y[3] + 0.5 * lambda_ctau * (y[1] + y[2])) * (1 - y[4] / k_c)
                 ]
             else:
                 derivative = [
@@ -223,14 +221,23 @@ class HaoModel(object):
                     (lambda_ntau_o * y[2] + lambda_ntau_p * y[1]) * (1 - y[3] / k_n),
                     (lambda_cn * y[3] + lambda_ctau * y[1]) * (1 - y[4] / k_c)
                 ]
+            return derivative
+
+        initial_derivative = calculate_derivative(initial_state)
+
+        def hao_dynamic_system(_, y):
+            """
+            if the use_hidden is true, we presume tau_o also influence the cognitive ability
+            the tau_o -> c connection (as well as the parameter) is purely hypothetical. It is only used for the
+            confounded identification test
+            """
+            derivative = calculate_derivative(y)
 
             noise = np.random.randn(5)
-            noise = noise * noise_coefficient * derivative
+            noise = noise * noise_coefficient * initial_derivative
             derivative = derivative + noise
             return derivative
 
-        t_span = t_init, visit_time
-        initial_state = [a_init, tau_p_init, tau_o_init, n_init, c_init]
         full_result = solve_ivp(hao_dynamic_system, t_span, initial_state)
         result = full_result.y[:, -1]
         return {
