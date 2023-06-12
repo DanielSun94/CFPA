@@ -442,35 +442,30 @@ class CausalDerivative(Derivative):
         assert inputs.shape[1] == inputs.shape[2] and len(inputs.shape) == 3
 
         # input_1 避免自环，input_2考虑自环
-        filter_1 = unsqueeze(ones([inputs.shape[2], inputs.shape[2]]) - eye(inputs.shape[2]), dim=0).to(self.device)
-        filter_2 = unsqueeze(eye(inputs.shape[2]), dim=0).to(self.device)
-        inputs_1 = inputs * filter_1
-        inputs_2 = inputs * filter_2
+        # filter_1 = unsqueeze(ones([inputs.shape[2], inputs.shape[2]]) - eye(inputs.shape[2]), dim=0).to(self.device)
+        # filter_2 = unsqueeze(eye(inputs.shape[2]), dim=0).to(self.device)
+        # inputs_1 = inputs * filter_1
+        # inputs_2 = inputs * filter_2
 
         output_feature = []
         if self.graph_type == 'DAG':
             adjacency = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
-            inputs_1 = inputs_1 * adjacency
-            inputs_1_list = chunk(inputs_1, inputs.shape[1], dim=1)
-            inputs_2_list = chunk(inputs_2, inputs.shape[1], dim=1)
+            inputs = inputs * adjacency
+            inputs_list = chunk(inputs, inputs.shape[1], dim=1)
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
-                net_3 = self.fuse_net_list[i]
-                input_1 = inputs_1_list[i]
-                input_2 = inputs_2_list[i]
+                input_1 = inputs_list[i]
 
-                representation_1 = net_1(input_1)
-                representation_3 = cat([representation_1, input_2], dim=2)
-                derivative = net_3(representation_3)
+                derivative = net_1(input_1)
                 output_feature.append(derivative)
         elif self.graph_type == 'ADMG':
             dag = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
             bi = unsqueeze(self.adjacency['bi'], dim=0).to(self.device)
-            inputs_1_dag = inputs_1 * dag
-            inputs_1_bi = inputs_1 * bi
+            inputs_1_dag = inputs * dag
+            inputs_1_bi = inputs * bi
             inputs_1_dag_list = chunk(inputs_1_dag, inputs.shape[1], dim=1)
             inputs_1_bi_list = chunk(inputs_1_bi, inputs.shape[1], dim=1)
-            inputs_2_list = chunk(inputs_2, inputs.shape[1], dim=1)
+            inputs_2_list = chunk(inputs, inputs.shape[1], dim=1)
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
                 net_2 = self.bi_directed_net_list[i]

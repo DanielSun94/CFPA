@@ -74,7 +74,7 @@ default_config = {
     # graph setting
     "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
     'graph_type': graph_type,  # valid value: ADMG, DAG
-    'sparsity_coefficient': 3.0,
+    'sparsity_coefficient': 2.0,
     'symmetry_coefficient': 0.1,
 
     # treatment
