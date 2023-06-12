@@ -94,6 +94,8 @@ def get_model(argument, id_type_list):
     bidirectional = argument['init_net_bidirectional']
     batch_first = True if argument['batch_first'] == 'True' else False
     dataset_name = argument['dataset_name']
+    sparsity = argument['sparsity_coefficient']
+    symmetry = argument['symmetry_coefficient']
     device = argument['device']
 
     # graph setting
@@ -106,8 +108,8 @@ def get_model(argument, id_type_list):
     model = TrajectoryPrediction(
         graph_type=graph_type, constraint=constraint, input_size=input_size, hidden_size=hidden_size, mode=mode,
         batch_first=batch_first, mediate_size=mediate_size, time_offset=time_offset, input_type_list=id_type_list,
-        device=device, clamp_edge_threshold=clamp_edge_threshold, bidirectional=bidirectional,
-        dataset_name=dataset_name, causal_derivative_flag=causal_derivative_flag)
+        device=device, clamp_edge_threshold=clamp_edge_threshold, bidirectional=bidirectional, sparsity=sparsity,
+        dataset_name=dataset_name, causal_derivative_flag=causal_derivative_flag, symmetry=symmetry)
     return model
 
 

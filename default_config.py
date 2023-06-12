@@ -18,7 +18,7 @@ distribution_mode = 'uniform'
 device = 'cuda:6'
 model = 'ODE'
 causal_derivative_flag = "True"
-graph_type = 'ADMG'
+graph_type = 'DAG'
 
 assert model in {'ODE'}
 
@@ -31,27 +31,6 @@ if not os.path.exists(ckpt_folder):
 if not os.path.exists(treatment_result_folder):
     os.makedirs(treatment_result_folder)
 
-if dataset == 'hao_true_lmci':
-    data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_{}_group_lmci_personal_2_type_{}.pkl'.format(
-        'False' if 'false' in dataset else 'True', distribution_mode
-    ))
-    time_offset = 50
-    minimum_observation = 4
-    input_size = 4
-elif dataset == 'hao_false_lmci':
-    data_path = os.path.join(sim_data_folder, 'sim_hao_model_hidden_{}_group_lmci_personal_2_type_{}.pkl'.format(
-        'False' if 'false' in dataset else 'True', distribution_mode
-    ))
-    time_offset = 50
-    minimum_observation = 4
-    input_size = 5
-elif dataset == 'spiral_2d':
-    data_path = os.path.join(sim_data_folder, 'spiral_2d.pkl')
-    minimum_observation = 100
-    time_offset = 0
-    input_size = 2
-else:
-    raise ValueError('')
 missing_flag_num = -99999
 
 
@@ -62,14 +41,14 @@ default_config = {
 
     # dataset config
     'dataset_name': dataset,
-    "data_path": data_path,
+    "data_path": None,
     "batch_first": "True",
-    "minimum_observation": minimum_observation,
-    "input_size": input_size,
+    "minimum_observation": None,
+    "input_size": None,
     "mask_tag": missing_flag_num,
     "reconstruct_input": "True",
     "predict_label": "True",
-    'time_offset': time_offset,
+    'time_offset': None,
     'distribution_mode': distribution_mode,
 
     # model config
@@ -95,6 +74,8 @@ default_config = {
     # graph setting
     "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
     'graph_type': graph_type,  # valid value: ADMG, DAG
+    'sparsity_coefficient': 3.0,
+    'symmetry_coefficient': 0.1,
 
     # treatment
     'treatment_clamp_edge_threshold': 10**-4,
@@ -171,6 +152,8 @@ parser.add_argument('--save_iter_interval', help='', default=default_config['sav
 # graph setting
 parser.add_argument('--constraint_type', help='', default=default_config['constraint_type'], type=str)
 parser.add_argument('--graph_type', help='', default=default_config['graph_type'], type=str)
+parser.add_argument('--sparsity_coefficient', help='', default=default_config['sparsity_coefficient'], type=float)
+parser.add_argument('--symmetry_coefficient', help='', default=default_config['symmetry_coefficient'], type=float)
 
 # augmented Lagrangian predict
 parser.add_argument('--init_lambda_predict', help='', default=default_config['init_lambda_predict'], type=float)
@@ -209,8 +192,27 @@ parser.add_argument('--treatment_refit_converge_threshold', help='',
 parser.add_argument('--treatment_eval_iter_interval', help='',
                     default=default_config['treatment_eval_iter_interval'], type=int)
 parser.add_argument('--mode', help='', default=default_config['mode'], type=str)
-
 args = vars(parser.parse_args())
+
+if args["dataset_name"] == 'hao_true_lmci':
+    args["data_path"] = os.path.join(sim_data_folder, 'sim_hao_model_hidden_True_group_lmci_personal_2_type_{}.pkl'
+                                     .format(distribution_mode))
+    args["time_offset"] = 50
+    args["minimum_observation"] = 4
+    args["input_size"] = 4
+elif args["dataset_name"] == 'hao_false_lmci':
+    args["data_path"] = os.path.join(sim_data_folder, 'sim_hao_model_hidden_False_group_lmci_personal_2_type_{}.pkl'
+                                     .format(distribution_mode))
+    args["time_offset"] = 50
+    args["minimum_observation"] = 4
+    args["input_size"] = 5
+elif args["dataset_name"] == 'spiral_2d':
+    args["data_path"] = os.path.join(sim_data_folder, 'spiral_2d.pkl')
+    args["minimum_observation"] = 100
+    args["time_offset"] = 0
+    args["input_size"] = 2
+else:
+    raise ValueError('')
 
 
 # logger
@@ -234,6 +236,7 @@ for key in args:
 config_list = sorted(config_list, key=lambda x: x[0])
 for item in config_list:
     logger.info("{}: {}".format(item[0], item[1]))
+
 
 # other config
 oracle_graph_dict ={
