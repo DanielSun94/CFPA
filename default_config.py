@@ -13,12 +13,12 @@ adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_fold
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_folder = os.path.join(script_path, 'resource', 'treatment_result')
 
-dataset = 'hao_false_lmci'
+dataset = 'hao_true_lmci'
+hidden_flag = 'True'
 distribution_mode = 'uniform'
-device = 'cuda:6'
+device = 'cuda:5'
+constraint_type = 'DAG'
 model = 'ODE'
-causal_derivative_flag = "True"
-graph_type = 'DAG'
 
 assert model in {'ODE'}
 
@@ -37,7 +37,7 @@ missing_flag_num = -99999
 default_config = {
     'process_name': 'verification',
     'model': model,
-    'causal_derivative_flag': causal_derivative_flag,
+    # 'causal_derivative_flag': causal_derivative_flag,
 
     # dataset config
     'dataset_name': dataset,
@@ -50,6 +50,7 @@ default_config = {
     "predict_label": "True",
     'time_offset': None,
     'distribution_mode': distribution_mode,
+    'hidden_flag': hidden_flag,
 
     # model config
     "mediate_size": 1,
@@ -72,10 +73,7 @@ default_config = {
     'save_iter_interval': 100,
 
     # graph setting
-    "constraint_type": 'ancestral',  # valid value: ancestral, arid, bow-free (for ADMG), and default (for DAG)
-    'graph_type': graph_type,  # valid value: ADMG, DAG
-    'sparsity_coefficient': 2.0,
-    'symmetry_coefficient': 0.1,
+    "constraint_type": constraint_type,
 
     # treatment
     'treatment_clamp_edge_threshold': 10**-4,
@@ -91,8 +89,8 @@ default_config = {
     'treatment_eval_iter_interval': 100,
 
     # augmented Lagrangian predict phase
-    "init_lambda_predict": 10**-2,
-    "init_mu_predict": 10**-2,
+    "init_lambda_predict": 0.0,
+    "init_mu_predict": 10**-3,
     "eta_predict": 10,
     'gamma_predict': 0.9,
     'stop_threshold_predict': 10**-8,
@@ -113,7 +111,7 @@ default_config = {
 parser = argparse.ArgumentParser()
 parser.add_argument('--process_name', help='', default=default_config['process_name'], type=str)
 parser.add_argument('--model_name', help='', default=default_config['model'], type=str)
-parser.add_argument('--causal_derivative_flag', help='', default=default_config['causal_derivative_flag'], type=str)
+# parser.add_argument('--causal_derivative_flag', help='', default=default_config['causal_derivative_flag'], type=str)
 
 # dataset config
 parser.add_argument('--dataset_name', help='', default=default_config['dataset_name'], type=str)
@@ -126,6 +124,7 @@ parser.add_argument('--reconstruct_input', help='', default=default_config['reco
 parser.add_argument('--predict_label', help='', default=default_config['predict_label'], type=str)
 parser.add_argument('--time_offset', help='', default=default_config['time_offset'], type=int)
 parser.add_argument('--distribution_mode', help='', default=default_config['distribution_mode'], type=str)
+parser.add_argument('--hidden_flag', help='', default=default_config['hidden_flag'], type=str)
 
 # model config
 parser.add_argument('--mediate_size', help='', default=default_config['mediate_size'], type=int)
@@ -151,9 +150,6 @@ parser.add_argument('--save_iter_interval', help='', default=default_config['sav
 
 # graph setting
 parser.add_argument('--constraint_type', help='', default=default_config['constraint_type'], type=str)
-parser.add_argument('--graph_type', help='', default=default_config['graph_type'], type=str)
-parser.add_argument('--sparsity_coefficient', help='', default=default_config['sparsity_coefficient'], type=float)
-parser.add_argument('--symmetry_coefficient', help='', default=default_config['symmetry_coefficient'], type=float)
 
 # augmented Lagrangian predict
 parser.add_argument('--init_lambda_predict', help='', default=default_config['init_lambda_predict'], type=float)

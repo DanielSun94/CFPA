@@ -14,20 +14,18 @@ import csv
 
 
 class TrajectoryPrediction(Module):
-    def __init__(self, graph_type: str, constraint: str, input_size: int, hidden_size: int, batch_first: bool,
-                 mediate_size: int, time_offset: int, clamp_edge_threshold: float, device: str, bidirectional: str,
-                 dataset_name: str, mode: str, input_type_list: list, causal_derivative_flag: str, sparsity: float,
-                 symmetry: float):
+    def __init__(self, hidden_flag: str, constraint: str, input_size: int, hidden_size: int, batch_first: bool,
+                 time_offset: int, clamp_edge_threshold: float, device: str, bidirectional: str,
+                 dataset_name: str, mode: str, input_type_list: list):
         super().__init__()
-        assert graph_type == 'DAG' or graph_type == 'ADMG'
-        assert (graph_type == 'DAG' and constraint == 'default') or (constraint in {'ancestral', 'bow-free', 'arid'})
+        assert hidden_flag == 'False' or hidden_flag == 'True'
+        assert constraint in {'DAG', 'sparse', 'none'}
         assert bidirectional == 'True' or bidirectional == 'False'
         # mode指代输入的数据的时间间隔是固定的还是随机的，如果是固定的可以用序列化处理，随机的必须一条一条算
         assert mode == 'uniform' or 'random'
-        assert causal_derivative_flag == "True" or causal_derivative_flag == "False"
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.graph_type = graph_type
+        self.hidden_flag = True if hidden_flag == 'True' else False
         self.constraint = constraint
         self.time_offset = time_offset
         self.sample_multiplier = 1
@@ -37,9 +35,6 @@ class TrajectoryPrediction(Module):
         self.device = device
         self.init_net_bidirectional = True if bidirectional == 'True' else False
         self.mode = mode
-        self.causal_derivative_flag = True if causal_derivative_flag == "True" else False
-        self.sparsity = sparsity
-        self.symmetry = symmetry
 
         self.mse_loss_func = MSELoss(reduction='none')
         self.cross_entropy_func = BCEWithLogitsLoss(reduction='none')
@@ -47,18 +42,21 @@ class TrajectoryPrediction(Module):
         self.init_network = LSTM(input_size=input_size*2+1, hidden_size=hidden_size, batch_first=batch_first,
                                  bidirectional=self.init_net_bidirectional)
         # 生成的分别是init value的均值与方差
-        self.projection_net = Sequential(Linear(hidden_size, hidden_size), ReLU(), Linear(hidden_size, input_size * 2))
-        if self.causal_derivative_flag:
-            self.derivative = CausalDerivative(graph_type, constraint, input_size, hidden_size, mediate_size,
-                                               dataset_name, device, clamp_edge_threshold, input_type_list, symmetry,
-                                               sparsity)
+        if self.hidden_flag:
+            self.derivative_dim = input_size + 1
         else:
-            self.derivative = OrdinaryDerivative(input_size, hidden_size, device)
+            self.derivative_dim = input_size
+        self.projection_net = Sequential(
+            Linear(hidden_size, hidden_size),
+            ReLU(),
+            Linear(hidden_size, self.derivative_dim * 2)
+        )
+        self.derivative = CausalDerivative(constraint, self.derivative_dim, hidden_size, dataset_name, device,
+                                           clamp_edge_threshold, input_type_list)
 
         self.init_network.to(device)
         self.projection_net.to(device)
         self.derivative.to(device)
-
         self.consistent_feature = self.get_consistent_feature_flag()
 
     def get_consistent_feature_flag(self):
@@ -87,11 +85,11 @@ class TrajectoryPrediction(Module):
 
         # estimate the init value
         init = self.predict_init_value(concat_input_list)
-        init_value, init_std = init[:, :self.input_size], init[:, self.input_size: ]
+        init_value, init_std = init[:, :self.derivative_dim], init[:, self.derivative_dim: ]
         std = randn([self.sample_multiplier, init_value.shape[0], init_value.shape[1]]).to(self.device)
         init_value, init_std = unsqueeze(init_value, dim=0), unsqueeze(init_std, dim=0)
         init_value = init_value + std * init_std
-        init_value = init_value.reshape([batch_size * self.sample_multiplier, self.input_size])
+        init_value = init_value.reshape([batch_size * self.sample_multiplier, self.derivative_dim])
 
         if self.mode == 'random':
             predict_value_list = []
@@ -119,7 +117,10 @@ class TrajectoryPrediction(Module):
     def loss_calculate(self, prediction_list, feature_list, mask_list, type_list):
         # 按照设计，这个函数只有在预测阶段有效，预测阶段的multiplier必须为1
         assert self.sample_multiplier == 1
-        assert len(prediction_list[0].shape) == 2 and prediction_list[0].shape[1] == self.input_size
+        if self.hidden_flag:
+            assert len(prediction_list[0].shape) == 2 and prediction_list[0].shape[1] == self.input_size+1
+        else:
+            assert len(prediction_list[0].shape) == 2 and prediction_list[0].shape[1] == self.input_size
         # 这里必须做双循环，因为random模式下每个sample是不定长的，在当前设计下不能tensor化
 
         consistent_feature = self.consistent_feature
@@ -131,6 +132,9 @@ class TrajectoryPrediction(Module):
             else:
                 raise ValueError('')
             prediction_list = stack(prediction_list, dim=0)
+            if self.hidden_flag:
+                prediction_list = prediction_list[:, :, :-1]
+
             feature_list = stack(feature_list, dim=0)
             mask_list = stack(mask_list, dim=0)
             type_list = unsqueeze(stack(type_list, dim=0), dim=2)
@@ -267,162 +271,68 @@ class OrdinaryDerivative(Derivative):
 
 
 class CausalDerivative(Derivative):
-    def __init__(self, graph_type: str, constraint_type: str, input_size: int, hidden_size: int, mediate_size: int,
-                 dataset_name: str, device: str, clamp_edge_threshold: float, input_type_list: list, symmetry: float,
-                 sparsity: float):
+    def __init__(self, constraint_type: str, input_size: int, hidden_size: int, dataset_name: str, device: str,
+                 clamp_edge_threshold: float, input_type_list: list):
         super().__init__()
-        assert graph_type == 'DAG' or graph_type == 'ADMG'
         self.constraint_type = constraint_type
-        self.graph_type = graph_type
         self.input_size = input_size
-        self.sparsity = sparsity
-        self.symmetry = symmetry
         self.device = device
-        self.directed_net_list = ParameterList()
-        self.fuse_net_list = ParameterList()
+        self.net_list = ParameterList()
         self.sigmoid = Sigmoid()
         self.softmax = Softmax(dim=1)
         self.clamp_edge_threshold = clamp_edge_threshold
         self.dataset_name = dataset_name
         self.input_type_list = input_type_list
         self.bi_directed_net_list = None
-        if graph_type == 'DAG':
-            for i in range(input_size):
-                net_1 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
-                                   Linear(hidden_size, 1, bias=False), ReLU())
-                self.directed_net_list.append(net_1)
-                net_3 = Sequential(Linear(1 + input_size, hidden_size), ReLU(),
-                                   Linear(hidden_size, 1), ReLU())
-                self.fuse_net_list.append(net_3)
 
-            self.adjacency = {'dag': (ones([input_size, input_size])).to(device)}
-        elif graph_type == 'ADMG':
-            self.bi_directed_net_list = ParameterList()
-            for i in range(input_size):
-                net_1 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
-                                   Linear(hidden_size, mediate_size, bias=False), ReLU())
-                net_2 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
-                                   Linear(hidden_size, mediate_size, bias=False), ReLU())
-                self.directed_net_list.append(net_1)
-                self.bi_directed_net_list.append(net_2)
-                # net_3 = Sequential(Linear(2 + input_size, hidden_size),
-                #                    ReLU(), Linear(hidden_size, 1), ReLU())
-                net_3 = Linear(2, 1)
-                self.fuse_net_list.append(net_3)
-            self.adjacency = {
-                'dag': ones([input_size, input_size]).to(device),
-                'bi': ones([input_size, input_size]).to(device)
-            }
-        else:
-            raise ValueError('')
+        for i in range(input_size):
+            net_1 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
+                               Linear(hidden_size, 1, bias=False), ReLU())
+            self.net_list.append(net_1)
+
+        self.adjacency = (ones([input_size, input_size])).to(device)
 
     def generate_binary_adjacency(self, threshold):
         with no_grad():
-            if self.graph_type == 'DAG':
-                return {
-                    'dag': (self.adjacency['dag'] > threshold).float().detach().to('cpu').numpy(),
-                    'bi': None
-                }
-            elif self.graph_type == 'ADMG':
-                return {
-                    'dag': (self.adjacency['dag'] > threshold).float().detach().to('cpu').numpy(),
-                    'bi': (self.adjacency['bi'] > threshold).float().detach().to('cpu').numpy()
-                }
-            else:
-                raise ValueError('')
+            return (self.adjacency > threshold).float().detach().to('cpu').numpy()
 
     def print_adjacency(self, iter_idx, write_folder=None):
         clamp_edge_threshold = self.clamp_edge_threshold
-        dag_connect_mat, binary_connect_mat = None, None
         with no_grad():
-            if self.graph_type == 'DAG':
-                dag_net_list = self.directed_net_list
-                dag_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-                dag_connect_mat = (1 - eye(self.input_size)).to(self.device) * dag_connect_mat
-                constraint = trace(matrix_exp((dag_connect_mat > self.clamp_edge_threshold).float()))
-            elif self.graph_type == 'ADMG':
-                dag_net_list = self.directed_net_list
-                dag_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-                bi_net_list = self.bi_directed_net_list
-                bi_connect_mat = self.calculate_connectivity_mat(bi_net_list, absolute=True)
-
-                dag_connect_mat = (1 - eye(self.input_size)).to(self.device) * dag_connect_mat
-                bi_connect_mat = (1 - eye(self.input_size)).to(self.device) * bi_connect_mat
-                assert self.constraint_type == 'ancestral'
-
-                constraint = trace(matrix_exp(dag_connect_mat)) + sum(dag_connect_mat * bi_connect_mat)
-            else:
-                raise ValueError('')
+            net_list = self.net_list
+            connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
+            connect_mat = (1 - eye(self.input_size)).to(self.device) * connect_mat
+            constraint = trace(matrix_exp((connect_mat > self.clamp_edge_threshold).float())) - self.input_size
         logger.info('binary graph constraint: {}'.format(constraint))
 
-        write_content = [[self.graph_type]]
-        if self.graph_type == 'DAG':
-            dag_connect_mat = dag_connect_mat.to('cpu').numpy()
-            logger.info('adjacency float')
-            for item in dag_connect_mat:
-                logger.info(item)
-            logger.info('adjacency bool')
-            for item in dag_connect_mat:
-                logger.info(item > clamp_edge_threshold)
-            for line in dag_connect_mat:
-                line_content = []
-                for item in line:
-                    line_content.append(item)
-                write_content.append(line_content)
-        else:
-            dag_connect_mat = dag_connect_mat.to('cpu').numpy()
-            bi_connect_mat = bi_connect_mat.to('cpu').numpy()
-            logger.info('directed adjacency float')
-            for item in dag_connect_mat:
-                logger.info(item)
-            logger.info('directed adjacency bool')
-            for item in dag_connect_mat:
-                logger.info(item > clamp_edge_threshold)
-            logger.info('bi adjacency float')
-            for item in bi_connect_mat:
-                logger.info(item)
-            logger.info('bi adjacency bool')
-            for item in bi_connect_mat:
-                logger.info(item > clamp_edge_threshold)
-            write_content.append(['directed acyclic graph'])
-            for line in dag_connect_mat:
-                line_content = []
-                for item in line:
-                    line_content.append(item)
-                write_content.append(line_content)
-            write_content.append(['bi-directed graph'])
-            for line in bi_connect_mat:
-                line_content = []
-                for item in line:
-                    line_content.append(item)
-                write_content.append(line_content)
+        write_content = [[self.constraint_type]]
+        connect_mat = connect_mat.to('cpu').numpy()
+        logger.info('adjacency float')
+        for item in connect_mat:
+            logger.info(item)
+        logger.info('adjacency bool')
+        for item in connect_mat:
+            logger.info(item > clamp_edge_threshold)
+        for line in connect_mat:
+            line_content = []
+            for item in line:
+                line_content.append(item)
+            write_content.append(line_content)
 
         if write_folder is not None:
             now = datetime.now().strftime("%Y%m%d%H%M%S")
-            file_name = 'CTP.{}.{}.{}.{}.{}.csv'\
-                .format(self.dataset_name, self.graph_type, self.constraint_type, iter_idx, now)
+            file_name = 'CTP.{}.{}.{}.{}.csv'\
+                .format(self.dataset_name, self.constraint_type, iter_idx, now)
             write_path = os.path.join(write_folder, file_name)
             with open(write_path, 'w', encoding='utf-8-sig', newline='') as f:
                 csv.writer(f).writerows(write_content)
 
     def clamp_edge(self, clamp_edge_threshold):
         with no_grad():
-            if self.graph_type == 'DAG':
-                dag_net_list = self.directed_net_list
-                connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-                keep_edge = connect_mat > clamp_edge_threshold
-                self.adjacency['dag'] *= keep_edge
-            elif self.graph_type == 'ADMG':
-                dag_net_list = self.directed_net_list
-                dag_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-                dag_keep_edge = dag_connect_mat > clamp_edge_threshold
-                self.adjacency['dag'] *= dag_keep_edge
-                bi_net_list = self.bi_directed_net_list
-                bi_connect_mat = self.calculate_connectivity_mat(bi_net_list, absolute=True)
-                bi_keep_edge = bi_connect_mat > clamp_edge_threshold
-                self.adjacency['bi'] *= bi_keep_edge
-            else:
-                raise ValueError('')
+            dag_net_list = self.net_list
+            connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
+            keep_edge = connect_mat > clamp_edge_threshold
+            self.adjacency *= keep_edge
 
     def forward(self, _, inputs):
         # designed for this format
@@ -431,7 +341,6 @@ class CausalDerivative(Derivative):
         input_type_list = self.input_type_list
 
         # 离散化离散变量的作用
-        assert len(input_type_list) == inputs.shape[1]
         for i in range(len(input_type_list)):
             if input_type_list[i] == 'discrete':
                 y_hard = (inputs[:, i] > 0).float()
@@ -442,46 +351,15 @@ class CausalDerivative(Derivative):
         inputs = inputs.repeat(1, inputs.shape[2], 1)
         assert inputs.shape[1] == inputs.shape[2] and len(inputs.shape) == 3
 
-        # input_1 避免自环，input_2考虑自环
-        # filter_1 = unsqueeze(ones([inputs.shape[2], inputs.shape[2]]) - eye(inputs.shape[2]), dim=0).to(self.device)
-        # filter_2 = unsqueeze(eye(inputs.shape[2]), dim=0).to(self.device)
-        # inputs_1 = inputs * filter_1
-        # inputs_2 = inputs * filter_2
-
         output_feature = []
-        if self.graph_type == 'DAG':
-            adjacency = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
-            inputs = inputs * adjacency
-            inputs_list = chunk(inputs, inputs.shape[1], dim=1)
-            for i in range(self.input_size):
-                net_1 = self.directed_net_list[i]
-                input_1 = inputs_list[i]
-                derivative = net_1(input_1)
-                output_feature.append(derivative)
-
-        elif self.graph_type == 'ADMG':
-            dag = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
-            bi = unsqueeze(self.adjacency['bi'], dim=0).to(self.device)
-            inputs_dag = inputs * dag
-            inputs_bi = inputs * bi
-            inputs_dag_list = chunk(inputs_dag, inputs.shape[1], dim=1)
-            inputs_bi_list = chunk(inputs_bi, inputs.shape[1], dim=1)
-
-            for i in range(self.input_size):
-                net_1 = self.directed_net_list[i]
-                net_2 = self.bi_directed_net_list[i]
-                net_3 = self.fuse_net_list[i]
-                input_dag = inputs_dag_list[i]
-                input_bi = inputs_bi_list[i]
-
-                derivative_1 = net_1(input_dag)
-                derivative_2 = net_2(input_bi)
-
-                representation_3 = cat([derivative_1, derivative_2], dim=2)
-                derivative = net_3(representation_3)
-                output_feature.append(derivative)
-        else:
-            raise ValueError('')
+        adjacency = unsqueeze(self.adjacency, dim=0).to(self.device)
+        inputs = inputs * adjacency
+        inputs_list = chunk(inputs, inputs.shape[1], dim=1)
+        for i in range(self.input_size):
+            net_1 = self.net_list[i]
+            input_1 = inputs_list[i]
+            derivative = net_1(input_1)
+            output_feature.append(derivative)
 
         output_feature = cat(output_feature, dim=2)
         output_feature = squeeze(output_feature, dim=1)
@@ -489,58 +367,22 @@ class CausalDerivative(Derivative):
 
     def graph_constraint(self):
         # from arxiv 2010.06978, Table 1
-        if self.graph_type == 'DAG':
-            dag_net_list = self.directed_net_list
-            directed_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-            directed_connect_mat = (1 - eye(self.input_size)).to(self.device) * directed_connect_mat
-            constraint = trace(matrix_exp(directed_connect_mat))
-
-        elif self.graph_type == 'ADMG':
-            dag_net_list = self.directed_net_list
-            bi_net_list = self.bi_directed_net_list
-            directed_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-            directed_connect_mat = (1 - eye(self.input_size)).to(self.device) * directed_connect_mat
-            bi_connect_mat = self.calculate_connectivity_mat(bi_net_list, absolute=True)
-            bi_connect_mat = (1 - eye(self.input_size)).to(self.device) * bi_connect_mat
-
-            dag_constraint = trace(matrix_exp(directed_connect_mat))
-            if self.constraint_type == 'ancestral':
-                bi_constraint = sum(matrix_exp(directed_connect_mat) * bi_connect_mat)
-            elif self.constraint_type == 'bow-free':
-                bi_constraint = sum(directed_connect_mat * bi_connect_mat)
-            elif self.constraint_type == 'arid':
-                bi_constraint = self.greenery(directed_connect_mat, bi_connect_mat)
-            else:
-                raise ValueError('')
-
-            bi_symmetry = sum((bi_connect_mat - transpose(bi_connect_mat, 1, 0)) ** 2)
-            bi_sparsity = sum(bi_connect_mat)
-            constraint = dag_constraint + bi_constraint
-            bi_symmetry = bi_symmetry / bi_symmetry.detach() * constraint.detach() * self.symmetry
-            bi_sparsity = bi_sparsity / bi_sparsity.detach() * constraint.detach() * self.sparsity
-            constraint = constraint + bi_symmetry + bi_sparsity
+        if self.constraint_type == 'DAG':
+            net_list = self.net_list
+            connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
+            connect_mat = (1 - eye(self.input_size)).to(self.device) * connect_mat
+            constraint = trace(matrix_exp(connect_mat)) - self.input_size
+        elif self.constraint_type == 'sparse':
+            net_list = self.net_list
+            connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
+            constraint = sum(connect_mat)
+        elif self.constraint_type == 'none':
+            constraint = FloatTensor([0]).to(self.device)
         else:
             raise ValueError('')
+
         assert constraint >= 0
         return constraint
-
-    def greenery(self, directed_connect_mat, bi_connect_mat):
-        # from arxiv 2010.06978, Algorithm 1
-        greenery = -self.input_size
-        identity = eye(self.input_size)
-        for i in range(self.input_size):
-            d_f, b_f = directed_connect_mat, bi_connect_mat
-            for j in range(1, self.input_size-1):
-                t = transpose(sum(matrix_exp(b_f) * d_f, dim=1, keepdim=True), 0, 1)
-                identity_i = unsqueeze(identity[i, :], dim=0)
-                f = tanh(t + identity_i)
-                f_mat = transpose(f, 0, 1)
-                f_mat = transpose(f_mat.repeat([1, self.input_size]), 0, 1)
-                d_f = d_f * f_mat
-                b_f = b_f * f_mat * transpose(f_mat, 0, 1)
-                c_mat = matrix_exp(b_f) * matrix_exp(d_f)
-                greenery = greenery + sum(c_mat[:, i])
-        return greenery
 
     def calculate_connectivity_mat(self, module_list, absolute):
         # Note, C_ij means the i predicts the j

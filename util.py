@@ -41,19 +41,14 @@ def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_obser
 
 def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
     dataset_name = argument['dataset_name']
-    graph_type = argument['graph_type']
     constraint_type = argument['constraint_type']
-    causal = argument['causal_derivative_flag']
+    hidden_flag = argument['hidden_flag']
     now = datetime.now().strftime("%Y%m%d%H%M%S")
+    assert hidden_flag == 'True' or hidden_flag == 'False'
 
-    assert causal == 'True' or causal == 'False'
+    file_name = '{}.{}.{}.{}.{}.{}.{}.{}'. \
+        format(phase, model_name, dataset_name, hidden_flag, constraint_type, now, epoch_idx, iter_idx)
 
-    if causal == 'True':
-        file_name = '{}.{}.{}.causal_True.{}.{}.{}.{}.{}'.\
-            format(phase, model_name, dataset_name, graph_type, constraint_type, now, epoch_idx, iter_idx)
-    else:
-        file_name = '{}.{}.{}.causal_False.{}.{}.{}'. \
-            format(phase, model_name, dataset_name, now, epoch_idx, iter_idx)
     model_path = os.path.join(folder, file_name+'.model')
     save(model, model_path)
     config_path = os.path.join(folder, file_name+'.config')
@@ -98,7 +93,7 @@ class LagrangianMultiplierStateUpdater(object):
                 final_loss = loss_sum + self.current_lambda * constraint + 1 / 2 * self.current_mu * constraint ** 2
                 self.val_loss_list.append([iter_idx, final_loss])
 
-            if iter_idx >= 2 * self.update_window and iter_idx % self.update_window == 0:
+            if iter_idx >= 3 * self.update_window and iter_idx % self.update_window == 0:
                 assert len(self.val_loss_list) >= 3
                 # 按照设计，loss在正常情况下应当是在下降的，因此delta按照道理应该是个负数
                 t0, t_half, t1 = self.val_loss_list[-3][1], self.val_loss_list[-2][1], self.val_loss_list[-1][1]
