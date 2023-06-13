@@ -16,7 +16,8 @@ import csv
 class TrajectoryPrediction(Module):
     def __init__(self, graph_type: str, constraint: str, input_size: int, hidden_size: int, batch_first: bool,
                  mediate_size: int, time_offset: int, clamp_edge_threshold: float, device: str, bidirectional: str,
-                 dataset_name:str, mode:str, input_type_list: list, causal_derivative_flag: str):
+                 dataset_name: str, mode: str, input_type_list: list, causal_derivative_flag: str, sparsity: float,
+                 symmetry: float):
         super().__init__()
         assert graph_type == 'DAG' or graph_type == 'ADMG'
         assert (graph_type == 'DAG' and constraint == 'default') or (constraint in {'ancestral', 'bow-free', 'arid'})
@@ -37,6 +38,8 @@ class TrajectoryPrediction(Module):
         self.init_net_bidirectional = True if bidirectional == 'True' else False
         self.mode = mode
         self.causal_derivative_flag = True if causal_derivative_flag == "True" else False
+        self.sparsity = sparsity
+        self.symmetry = symmetry
 
         self.mse_loss_func = MSELoss(reduction='none')
         self.cross_entropy_func = BCEWithLogitsLoss(reduction='none')
@@ -47,7 +50,8 @@ class TrajectoryPrediction(Module):
         self.projection_net = Sequential(Linear(hidden_size, hidden_size), ReLU(), Linear(hidden_size, input_size * 2))
         if self.causal_derivative_flag:
             self.derivative = CausalDerivative(graph_type, constraint, input_size, hidden_size, mediate_size,
-                                           dataset_name, device, clamp_edge_threshold, input_type_list)
+                                               dataset_name, device, clamp_edge_threshold, input_type_list, symmetry,
+                                               sparsity)
         else:
             self.derivative = OrdinaryDerivative(input_size, hidden_size, device)
 
@@ -262,15 +266,17 @@ class OrdinaryDerivative(Derivative):
         return FloatTensor([0])
 
 
-
 class CausalDerivative(Derivative):
     def __init__(self, graph_type: str, constraint_type: str, input_size: int, hidden_size: int, mediate_size: int,
-                 dataset_name: str, device: str, clamp_edge_threshold:float, input_type_list:list):
+                 dataset_name: str, device: str, clamp_edge_threshold: float, input_type_list: list, symmetry: float,
+                 sparsity: float):
         super().__init__()
         assert graph_type == 'DAG' or graph_type == 'ADMG'
         self.constraint_type = constraint_type
         self.graph_type = graph_type
         self.input_size = input_size
+        self.sparsity = sparsity
+        self.symmetry = symmetry
         self.device = device
         self.directed_net_list = ParameterList()
         self.fuse_net_list = ParameterList()
@@ -285,10 +291,11 @@ class CausalDerivative(Derivative):
                 net_1 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
                                    Linear(hidden_size, 1, bias=False), ReLU())
                 self.directed_net_list.append(net_1)
-                net_3 = Parameter(randn(1, 1+input_size))
+                net_3 = Sequential(Linear(1 + input_size, hidden_size), ReLU(),
+                                   Linear(hidden_size, 1), ReLU())
                 self.fuse_net_list.append(net_3)
 
-            self.adjacency = {'dag': (ones([input_size, input_size]) - eye(input_size)).to(device)}
+            self.adjacency = {'dag': (ones([input_size, input_size])).to(device)}
         elif graph_type == 'ADMG':
             self.bi_directed_net_list = ParameterList()
             for i in range(input_size):
@@ -298,11 +305,13 @@ class CausalDerivative(Derivative):
                                    Linear(hidden_size, mediate_size, bias=False), ReLU())
                 self.directed_net_list.append(net_1)
                 self.bi_directed_net_list.append(net_2)
-                net_3 = Parameter(randn(1, 2+input_size))
+                # net_3 = Sequential(Linear(2 + input_size, hidden_size),
+                #                    ReLU(), Linear(hidden_size, 1), ReLU())
+                net_3 = Linear(2, 1)
                 self.fuse_net_list.append(net_3)
             self.adjacency = {
-                'dag': (ones([input_size, input_size]) - eye(input_size)).to(device),
-                'bi': (ones([input_size, input_size]) - eye(input_size)).to(device)
+                'dag': ones([input_size, input_size]).to(device),
+                'bi': ones([input_size, input_size]).to(device)
             }
         else:
             raise ValueError('')
@@ -324,66 +333,65 @@ class CausalDerivative(Derivative):
 
     def print_adjacency(self, iter_idx, write_folder=None):
         clamp_edge_threshold = self.clamp_edge_threshold
+        dag_connect_mat, binary_connect_mat = None, None
         with no_grad():
             if self.graph_type == 'DAG':
                 dag_net_list = self.directed_net_list
-                connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-                self.adjacency['dag'] = connect_mat
-                constraint = trace(matrix_exp((connect_mat > self.clamp_edge_threshold).float())) - self.input_size
+                dag_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
+                dag_connect_mat = (1 - eye(self.input_size)).to(self.device) * dag_connect_mat
+                constraint = trace(matrix_exp((dag_connect_mat > self.clamp_edge_threshold).float()))
             elif self.graph_type == 'ADMG':
                 dag_net_list = self.directed_net_list
                 dag_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-                self.adjacency['dag'] = dag_connect_mat
                 bi_net_list = self.bi_directed_net_list
                 bi_connect_mat = self.calculate_connectivity_mat(bi_net_list, absolute=True)
-                self.adjacency['bi'] = bi_connect_mat
+
+                dag_connect_mat = (1 - eye(self.input_size)).to(self.device) * dag_connect_mat
+                bi_connect_mat = (1 - eye(self.input_size)).to(self.device) * bi_connect_mat
                 assert self.constraint_type == 'ancestral'
-                binary_connect_mat = (dag_connect_mat > self.clamp_edge_threshold).float()
-                constraint = trace(matrix_exp(binary_connect_mat)) \
-                             - self.input_size
-                constraint = sum(((dag_connect_mat > self.clamp_edge_threshold) *
-                                  (bi_connect_mat > self.clamp_edge_threshold)).float()) + constraint
+
+                constraint = trace(matrix_exp(dag_connect_mat)) + sum(dag_connect_mat * bi_connect_mat)
             else:
                 raise ValueError('')
         logger.info('binary graph constraint: {}'.format(constraint))
 
         write_content = [[self.graph_type]]
         if self.graph_type == 'DAG':
-            adjacency = self.adjacency['dag'].to('cpu').numpy()
+            dag_connect_mat = dag_connect_mat.to('cpu').numpy()
             logger.info('adjacency float')
-            for item in adjacency:
+            for item in dag_connect_mat:
                 logger.info(item)
             logger.info('adjacency bool')
-            for item in adjacency:
+            for item in dag_connect_mat:
                 logger.info(item > clamp_edge_threshold)
-            for line in adjacency:
+            for line in dag_connect_mat:
                 line_content = []
                 for item in line:
                     line_content.append(item)
                 write_content.append(line_content)
         else:
-            di = self.adjacency['dag'].to('cpu').numpy()
-            bi = self.adjacency['bi'].to('cpu').numpy()
+            dag_connect_mat = dag_connect_mat.to('cpu').numpy()
+            bi_connect_mat = bi_connect_mat.to('cpu').numpy()
             logger.info('directed adjacency float')
-            for item in di:
+            for item in dag_connect_mat:
                 logger.info(item)
             logger.info('directed adjacency bool')
-            for item in di:
+            for item in dag_connect_mat:
                 logger.info(item > clamp_edge_threshold)
             logger.info('bi adjacency float')
-            for item in bi:
+            for item in bi_connect_mat:
                 logger.info(item)
             logger.info('bi adjacency bool')
-            for item in bi:
+            for item in bi_connect_mat:
                 logger.info(item > clamp_edge_threshold)
             write_content.append(['directed acyclic graph'])
-            for line in di:
+            for line in dag_connect_mat:
                 line_content = []
                 for item in line:
                     line_content.append(item)
                 write_content.append(line_content)
             write_content.append(['bi-directed graph'])
-            for line in bi:
+            for line in bi_connect_mat:
                 line_content = []
                 for item in line:
                     line_content.append(item)
@@ -435,55 +443,48 @@ class CausalDerivative(Derivative):
         assert inputs.shape[1] == inputs.shape[2] and len(inputs.shape) == 3
 
         # input_1 避免自环，input_2考虑自环
-        filter_1 = unsqueeze(ones([inputs.shape[2], inputs.shape[2]]) - eye(inputs.shape[2]), dim=0).to(self.device)
-        filter_2 = unsqueeze(eye(inputs.shape[2]), dim=0).to(self.device)
-        inputs_1 = inputs * filter_1
-        inputs_2 = inputs * filter_2
+        # filter_1 = unsqueeze(ones([inputs.shape[2], inputs.shape[2]]) - eye(inputs.shape[2]), dim=0).to(self.device)
+        # filter_2 = unsqueeze(eye(inputs.shape[2]), dim=0).to(self.device)
+        # inputs_1 = inputs * filter_1
+        # inputs_2 = inputs * filter_2
 
         output_feature = []
         if self.graph_type == 'DAG':
             adjacency = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
-            inputs_1 = inputs_1 * adjacency
-            inputs_1_list = chunk(inputs_1, inputs.shape[1], dim=1)
-            inputs_2_list = chunk(inputs_2, inputs.shape[1], dim=1)
+            inputs = inputs * adjacency
+            inputs_list = chunk(inputs, inputs.shape[1], dim=1)
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
-                net_3 = self.fuse_net_list[i]
-                input_1 = inputs_1_list[i]
-                input_2 = inputs_2_list[i]
-
-                coefficient_3 = unsqueeze(self.softmax(net_3), dim=0)
-
-                representation_1 = net_1(input_1)
-                representation_3 = cat([representation_1, input_2], dim=2)
-                derivative = sum(representation_3 * coefficient_3, dim=2)
+                input_1 = inputs_list[i]
+                derivative = net_1(input_1)
                 output_feature.append(derivative)
+
         elif self.graph_type == 'ADMG':
             dag = unsqueeze(self.adjacency['dag'], dim=0).to(self.device)
             bi = unsqueeze(self.adjacency['bi'], dim=0).to(self.device)
-            inputs_1_dag = inputs_1 * dag
-            inputs_1_bi = inputs_1 * bi
-            inputs_1_dag_list = chunk(inputs_1_dag, inputs.shape[1], dim=1)
-            inputs_1_bi_list = chunk(inputs_1_bi, inputs.shape[1], dim=1)
-            inputs_2_list = chunk(inputs_2, inputs.shape[1], dim=1)
+            inputs_dag = inputs * dag
+            inputs_bi = inputs * bi
+            inputs_dag_list = chunk(inputs_dag, inputs.shape[1], dim=1)
+            inputs_bi_list = chunk(inputs_bi, inputs.shape[1], dim=1)
+
             for i in range(self.input_size):
                 net_1 = self.directed_net_list[i]
                 net_2 = self.bi_directed_net_list[i]
                 net_3 = self.fuse_net_list[i]
-                input_1_dag = inputs_1_dag_list[i]
-                input_1_bi = inputs_1_bi_list[i]
-                input_2 = inputs_2_list[i]
-                coefficient_3 = unsqueeze(self.softmax(net_3), dim=0)
+                input_dag = inputs_dag_list[i]
+                input_bi = inputs_bi_list[i]
 
-                representation_1 = net_1(input_1_dag)
-                representation_2 = net_2(input_1_bi)
-                representation_3 = cat([representation_1, representation_2, input_2], dim=2)
-                derivative = sum(representation_3 * coefficient_3, dim=2)
+                derivative_1 = net_1(input_dag)
+                derivative_2 = net_2(input_bi)
+
+                representation_3 = cat([derivative_1, derivative_2], dim=2)
+                derivative = net_3(representation_3)
                 output_feature.append(derivative)
         else:
             raise ValueError('')
 
-        output_feature = cat(output_feature, dim=1)
+        output_feature = cat(output_feature, dim=2)
+        output_feature = squeeze(output_feature, dim=1)
         return output_feature
 
     def graph_constraint(self):
@@ -491,14 +492,18 @@ class CausalDerivative(Derivative):
         if self.graph_type == 'DAG':
             dag_net_list = self.directed_net_list
             directed_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-            constraint = trace(matrix_exp(directed_connect_mat)) - self.input_size
+            directed_connect_mat = (1 - eye(self.input_size)).to(self.device) * directed_connect_mat
+            constraint = trace(matrix_exp(directed_connect_mat))
+
         elif self.graph_type == 'ADMG':
             dag_net_list = self.directed_net_list
             bi_net_list = self.bi_directed_net_list
             directed_connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
+            directed_connect_mat = (1 - eye(self.input_size)).to(self.device) * directed_connect_mat
             bi_connect_mat = self.calculate_connectivity_mat(bi_net_list, absolute=True)
+            bi_connect_mat = (1 - eye(self.input_size)).to(self.device) * bi_connect_mat
 
-            dag_constraint = trace(matrix_exp(directed_connect_mat)) - self.input_size
+            dag_constraint = trace(matrix_exp(directed_connect_mat))
             if self.constraint_type == 'ancestral':
                 bi_constraint = sum(matrix_exp(directed_connect_mat) * bi_connect_mat)
             elif self.constraint_type == 'bow-free':
@@ -511,8 +516,8 @@ class CausalDerivative(Derivative):
             bi_symmetry = sum((bi_connect_mat - transpose(bi_connect_mat, 1, 0)) ** 2)
             bi_sparsity = sum(bi_connect_mat)
             constraint = dag_constraint + bi_constraint
-            bi_symmetry = bi_symmetry / bi_symmetry.detach() * constraint.detach() * 0.1
-            bi_sparsity = bi_sparsity / bi_sparsity.detach() * constraint.detach() * 0.1
+            bi_symmetry = bi_symmetry / bi_symmetry.detach() * constraint.detach() * self.symmetry
+            bi_sparsity = bi_sparsity / bi_sparsity.detach() * constraint.detach() * self.sparsity
             constraint = constraint + bi_symmetry + bi_sparsity
         else:
             raise ValueError('')
