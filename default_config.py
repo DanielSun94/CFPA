@@ -16,9 +16,10 @@ treatment_result_folder = os.path.join(script_path, 'resource', 'treatment_resul
 dataset = 'hao_true_lmci'
 hidden_flag = 'True'
 distribution_mode = 'uniform'
-device = 'cuda:5'
+device = 'cuda:0'
 constraint_type = 'DAG'
 model = 'ODE'
+sparse_constraint_weight = 0.02
 
 assert model in {'ODE'}
 
@@ -53,14 +54,13 @@ default_config = {
     'hidden_flag': hidden_flag,
 
     # model config
-    "mediate_size": 1,
     "hidden_size": 4,
     'init_pooling': 'mean',
     'init_net_bidirectional': "True",
 
     # train setting
     'max_epoch': 10000,
-    'max_iteration': 1000000,
+    'max_iteration': 5000,
     "batch_size": 512,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
@@ -74,6 +74,7 @@ default_config = {
 
     # graph setting
     "constraint_type": constraint_type,
+    'sparse_constraint_weight': sparse_constraint_weight,
 
     # treatment
     'treatment_clamp_edge_threshold': 10**-4,
@@ -91,6 +92,8 @@ default_config = {
     # augmented Lagrangian predict phase
     "init_lambda_predict": 0.0,
     "init_mu_predict": 10**-3,
+    "max_lambda_predict": 0.5,
+    "max_mu_predict": 2,
     "eta_predict": 10,
     'gamma_predict': 0.9,
     'stop_threshold_predict': 10**-8,
@@ -127,7 +130,6 @@ parser.add_argument('--distribution_mode', help='', default=default_config['dist
 parser.add_argument('--hidden_flag', help='', default=default_config['hidden_flag'], type=str)
 
 # model config
-parser.add_argument('--mediate_size', help='', default=default_config['mediate_size'], type=int)
 parser.add_argument('--hidden_size', help='', default=default_config['hidden_size'], type=int)
 parser.add_argument('--init_pooling', help='', default=default_config['init_pooling'], type=str)
 parser.add_argument('--init_net_bidirectional', help='',
@@ -150,10 +152,14 @@ parser.add_argument('--save_iter_interval', help='', default=default_config['sav
 
 # graph setting
 parser.add_argument('--constraint_type', help='', default=default_config['constraint_type'], type=str)
+parser.add_argument('--sparse_constraint_weight', help='', default=default_config['sparse_constraint_weight'],
+                    type=float)
 
 # augmented Lagrangian predict
 parser.add_argument('--init_lambda_predict', help='', default=default_config['init_lambda_predict'], type=float)
 parser.add_argument('--init_mu_predict', help='', default=default_config['init_mu_predict'], type=float)
+parser.add_argument('--max_lambda_predict', help='', default=default_config['max_lambda_predict'], type=float)
+parser.add_argument('--max_mu_predict', help='', default=default_config['max_mu_predict'], type=float)
 parser.add_argument('--eta_predict', help='', default=default_config['eta_predict'], type=float)
 parser.add_argument('--gamma_predict', help='', default=default_config['gamma_predict'], type=float)
 parser.add_argument('--stop_threshold_predict', help='', default=default_config['stop_threshold_predict'], type=float)

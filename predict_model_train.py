@@ -1,6 +1,7 @@
 from default_config import args, logger, ckpt_folder, adjacency_mat_folder
 from model.causal_trajectory_prediction import TrajectoryPrediction
 from torch.optim import Adam
+from torch import FloatTensor
 from util import get_data_loader, save_model, LagrangianMultiplierStateUpdater, predict_performance_evaluation
 
 
@@ -11,6 +12,8 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
     clamp_edge_flag = argument['clamp_edge_flag']
     save_interval = argument['save_iter_interval']
     constraint_type = argument['constraint_type']
+    weight = argument['sparse_constraint_weight']
+    device = argument['device']
     assert clamp_edge_flag == 'True' or clamp_edge_flag == 'False'
     clamp_edge_flag = True if clamp_edge_flag == 'True' else False
 
@@ -25,7 +28,16 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             iter_idx += 1
 
             # 认为定义lamb和mu的更新频率
-            constraint = model.calculate_constraint()
+            graph_constraint, sparse_constraint = model.calculate_constraint()
+            lamb, mu = multiplier_updater.update(model, iter_idx)
+            if argument['constraint_type'] == 'DAG':
+                constraint = (lamb + 1 / 2 * mu ** 2) * graph_constraint + sparse_constraint * weight
+            elif argument['constraint_type'] == 'sparse':
+                constraint = sparse_constraint * weight
+            elif argument['constraint_type'] == 'none':
+                constraint = FloatTensor([0]).to(device)
+            else:
+                raise ValueError('')
 
             if iter_idx > max_iteration:
                 break
@@ -34,7 +46,6 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             if iter_idx > 20 and clamp_edge_flag:
                 model.clamp_edge()
 
-
             input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
             label_mask_list, label_type_list = batch[6], batch[7]
             predict_value_list = model(input_list, label_time_list)
@@ -42,10 +53,13 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             loss = output_dict['loss']
 
             if constraint_type == 'DAG':
-                lamb, mu = multiplier_updater.update(model, iter_idx)
-                loss = loss + lamb * constraint + 1 / 2 * mu * constraint ** 2
+                loss = loss + constraint
+            elif constraint_type == 'sparse':
+                loss = loss + constraint
+            elif constraint_type == 'none':
+                loss = loss
             else:
-                loss = loss + constraint / constraint.detach() * loss.detach()
+                raise ValueError('')
 
             optimizer.zero_grad()
             loss.backward()
@@ -119,9 +133,12 @@ def get_lagrangian_updater(argument, validation_dataloader):
     gamma = argument['gamma_predict']
     lagrangian_converge_threshold = argument['lagrangian_converge_threshold_predict']
     update_window = argument['update_window_predict']
+    max_lambda = argument['max_lambda_predict']
+    max_mu = argument['max_mu_predict']
     multiplier_updater = LagrangianMultiplierStateUpdater(
-        init_lambda=init_lambda, init_mu=init_mu, gamma=gamma, eta=eta, update_window=update_window,
-        dataloader=validation_dataloader, converge_threshold=lagrangian_converge_threshold)
+        init_lambda=init_lambda, init_mu=init_mu, gamma=gamma, eta=eta, update_window=update_window, max_mu=max_mu,
+        dataloader=validation_dataloader, converge_threshold=lagrangian_converge_threshold, max_lambda=max_lambda,
+    )
     return multiplier_updater
 
 

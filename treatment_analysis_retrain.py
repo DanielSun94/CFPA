@@ -9,7 +9,7 @@ import pickle
 
 
 def model_refit(train_loader, val_loader, model, optimizer, max_epoch, max_iteration, converge_threshold,
-                eval_iter_interval, treatment_time):
+                eval_iter_interval, treatment_idx, treatment_value, treatment_time):
     iter_idx = 0
     previous_loss = 0
     for epoch_idx in range(max_epoch):
@@ -113,7 +113,8 @@ def framework(argument, trained_model, model_ckpt_name, preset_graph):
     if re_fit_flag:
         treatment_time = FloatTensor([treatment_time]).to(device)
         model = model_refit(train_dataloader, validation_dataloader, model, optimizer, max_epoch, max_iter,
-                            treatment_refit_converge_threshold, eval_iter_interval, treatment_time)
+                            treatment_refit_converge_threshold, eval_iter_interval, treatment_idx, treatment_value,
+                            treatment_time)
 
     result_list = []
     for batch in validation_dataloader:

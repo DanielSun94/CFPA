@@ -57,13 +57,16 @@ def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
 
 
 class LagrangianMultiplierStateUpdater(object):
-    def __init__(self, init_lambda, init_mu, gamma, eta, converge_threshold, update_window, dataloader):
+    def __init__(self, init_lambda, init_mu, gamma, eta, converge_threshold, update_window, dataloader,
+                 max_lambda, max_mu):
         self.init_lambda = init_lambda
         self.current_lambda = init_lambda
         self.init_mu = init_mu
         self.current_mu = init_mu
         self.gamma = gamma
         self.eta = eta
+        self.max_lambda = max_lambda
+        self.max_mu = max_mu
         self.converge_threshold = converge_threshold
         self.update_window = update_window
         self.data_loader = dataloader
@@ -74,7 +77,7 @@ class LagrangianMultiplierStateUpdater(object):
 
     def update(self, model, iter_idx):
         with no_grad():
-            constraint = model.calculate_constraint()
+            constraint, _ = model.calculate_constraint()
             assert iter_idx > 0
             if iter_idx == 1 or (iter_idx > 1 and iter_idx % self.update_window == 0):
                 # 注意，此处计算loss是在validation dataset上计算。原则上constraint loss重复计算了，但是反正这个计算也不expensive，
@@ -106,13 +109,23 @@ class LagrangianMultiplierStateUpdater(object):
 
             if abs(delta_lambda) < self.converge_threshold or delta_lambda > 0:
                 self.constraint_list.append([iter_idx, constraint])
-                self.current_lambda += self.current_mu * constraint.item()
-                logger.info("Updated lambda to {}".format(self.current_lambda))
+                new_lambda = self.current_mu * constraint.item() + self.current_lambda
+                if new_lambda < self.max_lambda:
+                    self.current_lambda = new_lambda
+                    logger.info("Updated lambda to {}".format(self.current_lambda))
+                else:
+                    self.current_lambda = self.max_lambda
+                    logger.info("Updated lambda to {}".format(self.current_lambda))
 
                 if len(self.constraint_list) >= 2:
                     if self.constraint_list[-1][1] > self.constraint_list[-2][1] * self.gamma:
-                        self.current_mu *= 10
-                        logger.info("Updated mu to {}".format(self.current_mu))
+                        new_mu = 10 * self.current_mu
+                        if new_mu < self.max_mu:
+                            self.current_mu = new_mu
+                            logger.info("Updated mu to {}".format(self.current_mu))
+                        else:
+                            self.current_mu = self.max_mu
+                            logger.info("Updated mu to {}".format(self.current_lambda))
         return self.current_lambda, self.current_mu
 
 
@@ -127,12 +140,15 @@ def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=Non
             loss = output_dict['loss']
             loss_list.append(loss)
         loss = mean(FloatTensor(loss_list)).item()
-        constraint = model.calculate_constraint().item()
+        graph_constraint, sparse_constraint = model.calculate_constraint()
+        graph_constraint = graph_constraint.item()
+        sparse_constraint = sparse_constraint.item()
     if epoch_idx is not None:
-        logger.info('epoch: {:>4d}, iter: {:>4d}, {:>6s} loss: {:>8.4f}, constraint: {:>8.4f}'
-                    .format(epoch_idx, iter_idx, loader_fraction, loss, constraint))
+        logger.info('epoch: {:>4d}, iter: {:>4d}, {:>6s} loss: {:>8.8f}, graph cons: {:>8.8f}, sparse cons: {:>8.8f}'
+            .format(epoch_idx, iter_idx, loader_fraction, loss, graph_constraint, sparse_constraint))
     else:
-        logger.info('final {} loss: {:>8.4f}, constraint: {:>8.4f}'.format(loader_fraction, loss, constraint))
+        logger.info('final {} loss: {:>8.8f}, graph cons: {:>8.8f}, sparse cons: {:>8.8f}'
+                    .format(loader_fraction, loss, graph_constraint, sparse_constraint))
 
 
 def preset_graph_converter(id_dict, graph):

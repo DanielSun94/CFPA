@@ -1,3 +1,5 @@
+import torch
+
 if __name__ == '__main__':
     print('unit test in verification')
 import os
@@ -39,23 +41,28 @@ class TrajectoryPrediction(Module):
         self.mse_loss_func = MSELoss(reduction='none')
         self.cross_entropy_func = BCEWithLogitsLoss(reduction='none')
         # init value estimate module
-        self.init_network = LSTM(input_size=input_size*2+1, hidden_size=hidden_size, batch_first=batch_first,
-                                 bidirectional=self.init_net_bidirectional)
+        self.init_network_list = ParameterList()
+        self.project_list = ParameterList()
+
+        # 此处的input size 3是value, missing flag, time, hidden size直接指初始值
+        for i in range(input_size):
+            self.init_network_list.append(
+                LSTM(input_size=3, hidden_size=hidden_size, batch_first=batch_first,
+                     bidirectional=self.init_net_bidirectional)
+            )
+            self.project_list.append(Linear(hidden_size, 2))
+
         # 生成的分别是init value的均值与方差
         if self.hidden_flag:
             self.derivative_dim = input_size + 1
         else:
             self.derivative_dim = input_size
-        self.projection_net = Sequential(
-            Linear(hidden_size, hidden_size),
-            ReLU(),
-            Linear(hidden_size, self.derivative_dim * 2)
-        )
-        self.derivative = CausalDerivative(constraint, self.derivative_dim, hidden_size, dataset_name, device,
-                                           clamp_edge_threshold, input_type_list)
 
-        self.init_network.to(device)
-        self.projection_net.to(device)
+        self.derivative = CausalDerivative(constraint, self.derivative_dim, hidden_size, dataset_name, device,
+                                           clamp_edge_threshold, input_type_list, self.hidden_flag)
+
+        self.init_network_list.to(device)
+        self.project_list.to(device)
         self.derivative.to(device)
         self.consistent_feature = self.get_consistent_feature_flag()
 
@@ -85,7 +92,7 @@ class TrajectoryPrediction(Module):
 
         # estimate the init value
         init = self.predict_init_value(concat_input_list)
-        init_value, init_std = init[:, :self.derivative_dim], init[:, self.derivative_dim: ]
+        init_value, init_std = init[:, :, 0], init[:, :, 1]
         std = randn([self.sample_multiplier, init_value.shape[0], init_value.shape[1]]).to(self.device)
         init_value, init_std = unsqueeze(init_value, dim=0), unsqueeze(init_std, dim=0)
         init_value = init_value + std * init_std
@@ -197,20 +204,31 @@ class TrajectoryPrediction(Module):
     def predict_init_value(self, concat_input):
         length = LongTensor([len(item) for item in concat_input]).to(self.device)
         data = pad_sequence(concat_input, batch_first=True, padding_value=0).float()
-        init_seq, _ = self.init_network(data)
+        chunked_data = chunk(data, self.input_size*2+1, dim=2)
 
-        # 根据网上的相关资料，forward pass的index是前一半；这个slice的策略尽管我没查到，但是在numpy上试了试，似乎是对的
-        if self.init_net_bidirectional:
-            forward = init_seq[range(len(length)), length-1, :self.hidden_size]
-            backward = init_seq[:, 0, self.hidden_size:]
-            hidden_init = (forward + backward) / 2
-        else:
-            hidden_init = init_seq[range(len(length)), length-1, :]
-        value_init = self.projection_net(hidden_init)
-        return value_init
+        value_init_list = []
+        for i in range(self.input_size):
+            time, feature, mask = chunked_data[0], chunked_data[i+1], chunked_data[i+self.input_size]
+            stacked_data = squeeze(stack([time, feature, mask], dim=2))
+            init_seq_i, _ = self.init_network_list[i](stacked_data)
+
+            if self.init_net_bidirectional:
+                forward = init_seq_i[range(len(length)), length - 1, :self.hidden_size]
+                backward = init_seq_i[:, 0, self.hidden_size:]
+                hidden_init = (forward + backward) / 2
+            else:
+                hidden_init = init_seq_i[range(len(length)), length - 1, :]
+
+            value_init = self.project_list[i](hidden_init)
+            value_init_list.append(value_init)
+        # 如果有hidden flag，则再加一个补充项，这个补充项不是根据既有数据推断得到，防止出现信息泄露
+        if self.hidden_flag:
+            value_init_list.append(torch.ones(value_init_list[-1].shape).to(self.device))
+        value_init_list = squeeze(stack(value_init_list, dim=1))
+        return value_init_list
 
     def calculate_constraint(self):
-        return self.derivative.graph_constraint()
+        return self.derivative.graph_constraint(), self.derivative.sparse_constraint()
 
     def clamp_edge(self):
         self.derivative.clamp_edge(self.clamp_edge_threshold)
@@ -245,38 +263,14 @@ class Derivative(Module):
         raise NotImplementedError
 
 
-class OrdinaryDerivative(Derivative):
-    def __init__(self, input_size, hidden_size, device):
-        super().__init__()
-        self.device = device
-        self.model = Sequential(Linear(input_size, hidden_size), ReLU(), Linear(hidden_size, input_size)).to(device)
-
-    def forward(self, _, inputs):
-        return self.model(inputs)
-
-    def generate_binary_adjacency(self, threshold):
-        return '0'
-
-    def print_adjacency(self, iter_idx, write_folder=None):
-        return '0'
-
-    def clamp_edge(self, clamp_edge_threshold):
-        return 0
-
-    def graph_constraint(self):
-        return FloatTensor([0]).to(self.device)
-
-    def calculate_connectivity_mat(self, module_list, absolute):
-        return FloatTensor([0])
-
-
 class CausalDerivative(Derivative):
     def __init__(self, constraint_type: str, input_size: int, hidden_size: int, dataset_name: str, device: str,
-                 clamp_edge_threshold: float, input_type_list: list):
+                 clamp_edge_threshold: float, input_type_list: list, hidden_flag:bool):
         super().__init__()
         self.constraint_type = constraint_type
         self.input_size = input_size
         self.device = device
+        self.hidden_flag = hidden_flag
         self.net_list = ParameterList()
         self.sigmoid = Sigmoid()
         self.softmax = Softmax(dim=1)
@@ -285,11 +279,17 @@ class CausalDerivative(Derivative):
         self.input_type_list = input_type_list
         self.bi_directed_net_list = None
 
-        for i in range(input_size):
-            net_1 = Sequential(Linear(input_size, hidden_size, bias=False), ReLU(),
-                               Linear(hidden_size, 1, bias=False), ReLU())
-            self.net_list.append(net_1)
+        self.net_list = ParameterList()
+        for i in range(self.input_size):
+            self.net_list.append(
+                Sequential(
+                    Linear(self.input_size, hidden_size, bias=False),
+                    ReLU(),
+                    Linear(hidden_size, 1, bias=False),
+                )
+            )
 
+        self.net_list.to(device)
         self.adjacency = (ones([input_size, input_size])).to(device)
 
     def generate_binary_adjacency(self, threshold):
@@ -301,7 +301,6 @@ class CausalDerivative(Derivative):
         with no_grad():
             net_list = self.net_list
             connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
-            connect_mat = (1 - eye(self.input_size)).to(self.device) * connect_mat
             constraint = trace(matrix_exp((connect_mat > self.clamp_edge_threshold).float())) - self.input_size
         logger.info('binary graph constraint: {}'.format(constraint))
 
@@ -309,7 +308,13 @@ class CausalDerivative(Derivative):
         connect_mat = connect_mat.to('cpu').numpy()
         logger.info('adjacency float')
         for item in connect_mat:
-            logger.info(item)
+            item_str_list = []
+            for key in item:
+                key = float(key)
+                item_str_list.append('{:>9.9f}'.format(key))
+            item_str = ', '.join(item_str_list)
+            logger.info('['+item_str+']')
+
         logger.info('adjacency bool')
         for item in connect_mat:
             logger.info(item > clamp_edge_threshold)
@@ -358,6 +363,13 @@ class CausalDerivative(Derivative):
         for i in range(self.input_size):
             net_1 = self.net_list[i]
             input_1 = inputs_list[i]
+
+            # 这一情况下最后一个item默认是隐变量，不考虑其它变量预测
+            if i == self.input_size-1 and self.hidden_flag:
+                feature_filter = torch.zeros([1, 1, self.input_size]).to(self.device)
+                feature_filter[0, 0, -1] = 1
+                input_1 = input_1 * feature_filter
+
             derivative = net_1(input_1)
             output_feature.append(derivative)
 
@@ -365,23 +377,24 @@ class CausalDerivative(Derivative):
         output_feature = squeeze(output_feature, dim=1)
         return output_feature
 
+    def sparse_constraint(self):
+        net_list = self.net_list
+        connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
+        connect_mat = (1 - eye(len(net_list))).to(self.device) * connect_mat
+        return sum(connect_mat)
+
     def graph_constraint(self):
         # from arxiv 2010.06978, Table 1
-        if self.constraint_type == 'DAG':
-            net_list = self.net_list
-            connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
-            connect_mat = (1 - eye(self.input_size)).to(self.device) * connect_mat
-            constraint = trace(matrix_exp(connect_mat)) - self.input_size
-        elif self.constraint_type == 'sparse':
-            net_list = self.net_list
-            connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
-            constraint = sum(connect_mat)
-        elif self.constraint_type == 'none':
-            constraint = FloatTensor([0]).to(self.device)
+        net_list = self.net_list
+        connect_mat_origin = self.calculate_connectivity_mat(net_list, absolute=True)
+        if self.hidden_flag:
+            valid_size = self.input_size - 1
+            connect_mat = connect_mat_origin[:-1, :-1]
         else:
-            raise ValueError('')
-
-        assert constraint >= 0
+            valid_size = self.input_size
+            connect_mat = connect_mat_origin
+        connect_mat = (1 - eye(valid_size)).to(self.device) * connect_mat
+        constraint = trace(matrix_exp(connect_mat)) - valid_size
         return constraint
 
     def calculate_connectivity_mat(self, module_list, absolute):
