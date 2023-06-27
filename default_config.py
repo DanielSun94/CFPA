@@ -19,7 +19,7 @@ distribution_mode = 'uniform'
 device = 'cuda:0'
 constraint_type = 'DAG'
 model = 'ODE'
-sparse_constraint_weight = 0.02
+sparse_constraint_weight = 0.08
 
 assert model in {'ODE'}
 

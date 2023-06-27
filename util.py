@@ -122,10 +122,9 @@ class LagrangianMultiplierStateUpdater(object):
                         new_mu = 10 * self.current_mu
                         if new_mu < self.max_mu:
                             self.current_mu = new_mu
-                            logger.info("Updated mu to {}".format(self.current_mu))
                         else:
                             self.current_mu = self.max_mu
-                            logger.info("Updated mu to {}".format(self.current_lambda))
+                        logger.info("Updated mu to {}".format(self.current_mu))
         return self.current_lambda, self.current_mu
 
 

@@ -40,17 +40,6 @@ class TrajectoryPrediction(Module):
 
         self.mse_loss_func = MSELoss(reduction='none')
         self.cross_entropy_func = BCEWithLogitsLoss(reduction='none')
-        # init value estimate module
-        self.init_network_list = ParameterList()
-        self.project_list = ParameterList()
-
-        # 此处的input size 3是value, missing flag, time, hidden size直接指初始值
-        for i in range(input_size):
-            self.init_network_list.append(
-                LSTM(input_size=3, hidden_size=hidden_size, batch_first=batch_first,
-                     bidirectional=self.init_net_bidirectional)
-            )
-            self.project_list.append(Linear(hidden_size, 2))
 
         # 生成的分别是init value的均值与方差
         if self.hidden_flag:
@@ -58,11 +47,16 @@ class TrajectoryPrediction(Module):
         else:
             self.derivative_dim = input_size
 
+        self.init_network = LSTM(input_size=self.input_size * 2 + 1, hidden_size=hidden_size, batch_first=batch_first,
+                                 bidirectional=self.init_net_bidirectional)
+        self.project_net = Linear(hidden_size, self.derivative_dim*2)
+
+
         self.derivative = CausalDerivative(constraint, self.derivative_dim, hidden_size, dataset_name, device,
                                            clamp_edge_threshold, input_type_list, self.hidden_flag)
 
-        self.init_network_list.to(device)
-        self.project_list.to(device)
+        self.project_net.to(device)
+        self.init_network.to(device)
         self.derivative.to(device)
         self.consistent_feature = self.get_consistent_feature_flag()
 
@@ -204,28 +198,18 @@ class TrajectoryPrediction(Module):
     def predict_init_value(self, concat_input):
         length = LongTensor([len(item) for item in concat_input]).to(self.device)
         data = pad_sequence(concat_input, batch_first=True, padding_value=0).float()
-        chunked_data = chunk(data, self.input_size*2+1, dim=2)
+        init_seq, _ = self.init_network(data)
 
-        value_init_list = []
-        for i in range(self.input_size):
-            time, feature, mask = chunked_data[0], chunked_data[i+1], chunked_data[i+self.input_size]
-            stacked_data = squeeze(stack([time, feature, mask], dim=2))
-            init_seq_i, _ = self.init_network_list[i](stacked_data)
-
-            if self.init_net_bidirectional:
-                forward = init_seq_i[range(len(length)), length - 1, :self.hidden_size]
-                backward = init_seq_i[:, 0, self.hidden_size:]
-                hidden_init = (forward + backward) / 2
-            else:
-                hidden_init = init_seq_i[range(len(length)), length - 1, :]
-
-            value_init = self.project_list[i](hidden_init)
-            value_init_list.append(value_init)
-        # 如果有hidden flag，则再加一个补充项，这个补充项不是根据既有数据推断得到，防止出现信息泄露
-        if self.hidden_flag:
-            value_init_list.append(torch.ones(value_init_list[-1].shape).to(self.device))
-        value_init_list = squeeze(stack(value_init_list, dim=1))
-        return value_init_list
+        if self.init_net_bidirectional:
+            forward = init_seq[range(len(length)), length - 1, :self.hidden_size]
+            backward = init_seq[:, 0, self.hidden_size:]
+            hidden_init = (forward + backward) / 2
+        else:
+            hidden_init = init_seq[range(len(length)), length - 1, :]
+        value_init = self.project_net(hidden_init)
+        shape = value_init.shape
+        value_init = value_init.reshape([shape[0], shape[1] // 2, 2])
+        return value_init
 
     def calculate_constraint(self):
         return self.derivative.graph_constraint(), self.derivative.sparse_constraint()
