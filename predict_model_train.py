@@ -108,7 +108,7 @@ def get_model(argument, id_type_list):
     mode = argument['distribution_mode']
     hidden_size = argument['hidden_size']
     bidirectional = argument['init_net_bidirectional']
-    batch_first = True if argument['batch_first'] == 'True' else False
+    batch_first = argument['batch_first']
     dataset_name = argument['dataset_name']
     device = argument['device']
 

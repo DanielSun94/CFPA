@@ -4,7 +4,9 @@ import sys
 import datetime
 import logging
 
+process_name = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
 sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'data_preprocess'))
+sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'model'))
 t = datetime.datetime.now()
 time = ".".join([str(t.year), str(t.month), str(t.day), str(t.hour), str(t.minute), str(t.second)])
 script_path = os.path.split(os.path.realpath(__file__))[0]
@@ -16,10 +18,13 @@ treatment_result_folder = os.path.join(script_path, 'resource', 'treatment_resul
 dataset = 'hao_true_lmci'
 hidden_flag = 'True'
 distribution_mode = 'uniform'
-device = 'cuda:0'
+device = 'cuda:2'
 constraint_type = 'DAG'
 model = 'ODE'
 sparse_constraint_weight = 0.08
+
+new_model_number = 2
+treatment_init_model_name = 'predict.CTP.hao_true_lmci.True.DAG.20230321131253.0.1.model'
 
 assert model in {'ODE'}
 
@@ -36,7 +41,7 @@ missing_flag_num = -99999
 
 
 default_config = {
-    'process_name': 'verification',
+    'process_name': process_name,
     'model': model,
     # 'causal_derivative_flag': causal_derivative_flag,
 
@@ -60,11 +65,11 @@ default_config = {
 
     # train setting
     'max_epoch': 10000,
-    'max_iteration': 5000,
+    'max_iteration': 2000,
     "batch_size": 512,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
-    "learning_rate": 0.001,
+    "learning_rate": 0.01,
     "eval_iter_interval": 20,
     "eval_epoch_interval": -1,
     "device": device,
@@ -79,15 +84,18 @@ default_config = {
     # treatment
     'treatment_clamp_edge_threshold': 10**-4,
     'treatment_feature': 'n',
-    'treatment_time': 55.5,
+    'treatment_time': 52,
+    'treatment_observation_time': 57,
     'treatment_value': 0,
     'oracle_graph_flag': 'True',
-    'mode': 'full_confounded',
-    'sample_multiplier': 8,
-    'treatment_refit_max_iter': 1000,
-    'treatment_refit_max_epoch': 1000,
-    'treatment_refit_converge_threshold': 10**-4,
-    'treatment_eval_iter_interval': 100,
+    'sample_multiplier': 1,
+    'treatment_eval_iter_interval': 10,
+    "treatment_predict_lr" : 0.01,
+    "treatment_treatment_lr" : 0.001,
+    "treatment_max_epoch" : 10000,
+    "treatment_max_iter" : 2000,
+    'treatment_new_model_number': new_model_number,
+    'treatment_warm_iter': 100,
 
     # augmented Lagrangian predict phase
     "init_lambda_predict": 0.0,
@@ -167,33 +175,25 @@ parser.add_argument('--update_window_predict', help='', default=default_config['
 parser.add_argument('--lagrangian_converge_threshold_predict', help='',
                     default=default_config['lagrangian_converge_threshold_predict'], type=float)
 
-# augmented Lagrangian treatment analysis
-parser.add_argument('--init_lambda_treatment', help='', default=default_config['init_lambda_treatment'], type=float)
-parser.add_argument('--init_mu_treatment', help='', default=default_config['init_mu_treatment'], type=float)
-parser.add_argument('--eta_treatment', help='', default=default_config['eta_treatment'], type=float)
-parser.add_argument('--gamma_treatment', help='', default=default_config['gamma_treatment'], type=float)
-parser.add_argument('--stop_threshold_treatment', help='', default=default_config['stop_threshold_treatment'], type=float)
-parser.add_argument('--update_window_treatment', help='', default=default_config['update_window_treatment'], type=float)
-parser.add_argument('--lagrangian_converge_threshold_treatment', help='',
-                    default=default_config['lagrangian_converge_threshold_treatment'], type=float)
-
 # treatment analysis
+parser.add_argument('--treatment_init_model_name', help='', default=treatment_init_model_name, type=str)
+parser.add_argument('--treatment_warm_iter', help='', default=default_config['treatment_warm_iter'], type=int)
 parser.add_argument('--treatment_feature', help='', default=default_config['treatment_feature'], type=str)
 parser.add_argument('--treatment_time', help='', default=default_config['treatment_time'], type=float)
 parser.add_argument('--treatment_value', help='', default=default_config['treatment_value'], type=float)
 parser.add_argument('--oracle_graph_flag', help='', default=default_config['oracle_graph_flag'], type=str)
 parser.add_argument('--sample_multiplier', help='', default=default_config['sample_multiplier'], type=int)
-parser.add_argument('--treatment_clamp_edge_threshold', help='',
-                    default=default_config['treatment_clamp_edge_threshold'], type=float)
-parser.add_argument('--treatment_refit_max_iter', help='',
-                    default=default_config['treatment_refit_max_iter'], type=int)
-parser.add_argument('--treatment_refit_max_epoch', help='',
-                    default=default_config['treatment_refit_max_epoch'], type=int)
-parser.add_argument('--treatment_refit_converge_threshold', help='',
-                    default=default_config['treatment_refit_converge_threshold'], type=float)
-parser.add_argument('--treatment_eval_iter_interval', help='',
-                    default=default_config['treatment_eval_iter_interval'], type=int)
-parser.add_argument('--mode', help='', default=default_config['mode'], type=str)
+parser.add_argument('--treatment_predict_lr', help='', default=default_config['treatment_predict_lr'], type=float)
+parser.add_argument('--treatment_treatment_lr', help='', default=default_config['treatment_treatment_lr'], type=float)
+parser.add_argument('--treatment_observation_time', help='', default=default_config['treatment_observation_time'],
+                    type=float)
+parser.add_argument('--treatment_max_iter', help='', default=default_config['treatment_max_iter'], type=int)
+parser.add_argument('--treatment_max_epoch', help='', default=default_config['treatment_max_epoch'], type=int)
+parser.add_argument('--treatment_eval_iter_interval', help='', default=default_config['treatment_eval_iter_interval'],
+                    type=int)
+parser.add_argument('--treatment_new_model_number', help='', default=default_config['treatment_new_model_number'],
+                    type=int)
+
 args = vars(parser.parse_args())
 
 if args["dataset_name"] == 'hao_true_lmci':
@@ -242,18 +242,18 @@ for item in config_list:
 
 # other config
 oracle_graph_dict ={
-    'predict.CPA.hao_true.ADMG.ancestral.20230330041633.32.1300.model': {
-            'dag': {
-                'a': {'a': 0, 'tau_p': 1, 'n': 0, 'c': 0},
-                'tau_p': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1},
-                'n': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 0},
-                'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 0}
-            },
-            'bi': {
-                'a': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 0},
-                'tau_p': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 0},
-                'n': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1},
-                'c': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 0}
-            }
-        }
+    'hao_true_causal': {
+        'a': {'a': 1, 'tau_p': 1, 'n': 0, 'c': 0, 'hidden': 0},
+        'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
+        'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
+        'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'hidden': 0},
+        'hidden': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 1},
+    },
+    'hao_true_not_causal': {
+        'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+        'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+        'n': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+        'c': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+        'hidden': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+    }
 }

@@ -4,11 +4,10 @@ if __name__ == '__main__':
     print('unit test in verification')
 import os
 from default_config import logger
-from torch import chunk, stack, squeeze, cat, transpose, eye, ones, no_grad, matmul, abs, sum, \
-    trace, tanh, unsqueeze, LongTensor, randn, permute, FloatTensor
+from torch import chunk, stack, squeeze, cat, eye, ones, no_grad, matmul, abs, sum, \
+    trace, unsqueeze, LongTensor, randn, permute
 from torch.linalg import matrix_exp
-from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, BCEWithLogitsLoss, Sigmoid, \
-    Parameter, Softmax
+from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, BCEWithLogitsLoss, Sigmoid, Softmax
 from torch.nn.utils.rnn import pad_sequence
 from torchdiffeq import odeint_adjoint as odeint
 from datetime import datetime
@@ -16,13 +15,14 @@ import csv
 
 
 class TrajectoryPrediction(Module):
-    def __init__(self, hidden_flag: str, constraint: str, input_size: int, hidden_size: int, batch_first: bool,
+    def __init__(self, hidden_flag: str, constraint: str, input_size: int, hidden_size: int, batch_first: str,
                  time_offset: int, clamp_edge_threshold: float, device: str, bidirectional: str,
                  dataset_name: str, mode: str, input_type_list: list):
         super().__init__()
         assert hidden_flag == 'False' or hidden_flag == 'True'
         assert constraint in {'DAG', 'sparse', 'none'}
         assert bidirectional == 'True' or bidirectional == 'False'
+        assert batch_first == 'True' or batch_first == 'False'
         # mode指代输入的数据的时间间隔是固定的还是随机的，如果是固定的可以用序列化处理，随机的必须一条一条算
         assert mode == 'uniform' or 'random'
         self.input_size = input_size
@@ -37,7 +37,7 @@ class TrajectoryPrediction(Module):
         self.device = device
         self.init_net_bidirectional = True if bidirectional == 'True' else False
         self.mode = mode
-
+        self.batch_first = True if batch_first == 'True' else False
         self.mse_loss_func = MSELoss(reduction='none')
         self.cross_entropy_func = BCEWithLogitsLoss(reduction='none')
 
@@ -47,8 +47,8 @@ class TrajectoryPrediction(Module):
         else:
             self.derivative_dim = input_size
 
-        self.init_network = LSTM(input_size=self.input_size * 2 + 1, hidden_size=hidden_size, batch_first=batch_first,
-                                 bidirectional=self.init_net_bidirectional)
+        self.init_network = LSTM(input_size=self.input_size * 2 + 1, hidden_size=hidden_size,
+                                 batch_first=self.batch_first, bidirectional=self.init_net_bidirectional)
         self.project_net = Linear(hidden_size, self.derivative_dim*2)
 
 
@@ -59,6 +59,9 @@ class TrajectoryPrediction(Module):
         self.init_network.to(device)
         self.derivative.to(device)
         self.consistent_feature = self.get_consistent_feature_flag()
+
+    def set_adjacency_graph(self, adjacency):
+        self.derivative.adjacency = adjacency
 
     def get_consistent_feature_flag(self):
         input_type_list = self.input_type_list
@@ -112,17 +115,17 @@ class TrajectoryPrediction(Module):
             predict_value_list = []
             for i in range(len(predict_value)):
                 predict_value_list.append(squeeze(predict_value[i], dim=0))
+
         # 输出的predict_value_list是multiplier*batch size长度的序列
+        predict_value_list = stack(predict_value_list, dim=0)
+        if self.hidden_flag:
+            predict_value_list = predict_value_list[:, :, :-1]
         return predict_value_list
 
     def loss_calculate(self, prediction_list, feature_list, mask_list, type_list):
         # 按照设计，这个函数只有在预测阶段有效，预测阶段的multiplier必须为1
         assert self.sample_multiplier == 1
-        if self.hidden_flag:
-            assert len(prediction_list[0].shape) == 2 and prediction_list[0].shape[1] == self.input_size+1
-        else:
-            assert len(prediction_list[0].shape) == 2 and prediction_list[0].shape[1] == self.input_size
-        # 这里必须做双循环，因为random模式下每个sample是不定长的，在当前设计下不能tensor化
+        assert len(prediction_list.shape) == 3 and prediction_list.shape[2] == self.input_size
 
         consistent_feature = self.consistent_feature
         if self.mode == 'uniform' and consistent_feature != 'none':
@@ -132,9 +135,6 @@ class TrajectoryPrediction(Module):
                 loss_func = self.cross_entropy_func
             else:
                 raise ValueError('')
-            prediction_list = stack(prediction_list, dim=0)
-            if self.hidden_flag:
-                prediction_list = prediction_list[:, :, :-1]
 
             feature_list = stack(feature_list, dim=0)
             mask_list = stack(mask_list, dim=0)
@@ -157,6 +157,7 @@ class TrajectoryPrediction(Module):
                 'predict_loss': predict_loss.detach()
             }
         else:
+            # 这里必须做双循环，因为random模式下每个sample是不定长的，在当前设计下不能tensor化
             loss_sum, predict_loss_sum, reconstruct_loss_sum = 0, 0, 0
             for predict, label, mask, type_ in zip(prediction_list, feature_list, mask_list, type_list):
                 for i in range(len(self.input_type_list)):
@@ -231,9 +232,6 @@ class Derivative(Module):
     def forward(self, t, inputs):
         raise NotImplementedError
 
-    def generate_binary_adjacency(self, threshold):
-        raise NotImplementedError
-
     def print_adjacency(self, iter_idx, write_folder=None):
         raise NotImplementedError
 
@@ -263,6 +261,10 @@ class CausalDerivative(Derivative):
         self.input_type_list = input_type_list
         self.bi_directed_net_list = None
 
+        self.treatment_idx = None
+        self.treatment_value = None
+        self.treatment_time = None
+
         self.net_list = ParameterList()
         for i in range(self.input_size):
             self.net_list.append(
@@ -276,9 +278,10 @@ class CausalDerivative(Derivative):
         self.net_list.to(device)
         self.adjacency = (ones([input_size, input_size])).to(device)
 
-    def generate_binary_adjacency(self, threshold):
-        with no_grad():
-            return (self.adjacency > threshold).float().detach().to('cpu').numpy()
+    def set_treatment(self, treatment_idx, treatment_value, treatment_time):
+        self.treatment_time = treatment_time
+        self.treatment_value = treatment_value
+        self.treatment_idx = treatment_idx
 
     def print_adjacency(self, iter_idx, write_folder=None):
         clamp_edge_threshold = self.clamp_edge_threshold
@@ -323,11 +326,14 @@ class CausalDerivative(Derivative):
             keep_edge = connect_mat > clamp_edge_threshold
             self.adjacency *= keep_edge
 
-    def forward(self, _, inputs):
+    def forward(self, t, inputs):
         # designed for this format
         # inputs shape [batch size, input dim]
         assert inputs.shape[1] == self.input_size and len(inputs.shape) == 2
         input_type_list = self.input_type_list
+
+        assert (self.treatment_time is None and self.treatment_idx is None and self.treatment_value is None) or \
+               (self.treatment_time is not None and self.treatment_idx is not None and self.treatment_value is not None)
 
         # 离散化离散变量的作用
         for i in range(len(input_type_list)):
@@ -335,6 +341,10 @@ class CausalDerivative(Derivative):
                 y_hard = (inputs[:, i] > 0).float()
                 y_soft = self.sigmoid(inputs[:, i])
                 inputs[:, i] = y_hard - y_soft.detach() + y_soft
+
+        # 当存在设定treatment时，强行赋值
+        if self.treatment_time is not None and t > self.treatment_time:
+            inputs[:, self.treatment_idx] = self.treatment_value
 
         inputs = unsqueeze(inputs, dim=1)
         inputs = inputs.repeat(1, inputs.shape[2], 1)
@@ -365,7 +375,13 @@ class CausalDerivative(Derivative):
         net_list = self.net_list
         connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
         connect_mat = (1 - eye(len(net_list))).to(self.device) * connect_mat
-        return sum(connect_mat)
+        if self.hidden_flag:
+            loss_observed = sum(connect_mat[:-1,:])
+            loss_hidden = 30 * sum(connect_mat[-1,:])
+            loss = loss_hidden + loss_observed
+        else:
+            loss = sum(connect_mat)
+        return loss
 
     def graph_constraint(self):
         # from arxiv 2010.06978, Table 1

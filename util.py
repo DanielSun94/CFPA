@@ -40,19 +40,23 @@ def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_obser
 
 
 def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
-    dataset_name = argument['dataset_name']
-    constraint_type = argument['constraint_type']
-    hidden_flag = argument['hidden_flag']
-    now = datetime.now().strftime("%Y%m%d%H%M%S")
-    assert hidden_flag == 'True' or hidden_flag == 'False'
-
-    file_name = '{}.{}.{}.{}.{}.{}.{}.{}'. \
-        format(phase, model_name, dataset_name, hidden_flag, constraint_type, now, epoch_idx, iter_idx)
+    assert model_name == 'CTP' or model_name == 'TEP'
+    identifier = argument['process_name']
+    if model_name == 'CTP':
+        dataset_name = argument['dataset_name']
+        constraint_type = argument['constraint_type']
+        hidden_flag = argument['hidden_flag']
+        assert hidden_flag == 'True' or hidden_flag == 'False'
+        file_name = '{}.{}.{}.{}.{}.{}.{}.{}'. \
+            format(phase, model_name, dataset_name, hidden_flag, constraint_type, identifier, epoch_idx, iter_idx)
+    else:
+        dataset_name = argument['dataset_name']
+        hidden_flag = argument['hidden_flag']
+        file_name = '{}.{}.{}.{}.{}.{}.{}'. \
+            format(phase, model_name, dataset_name, hidden_flag, identifier, epoch_idx, iter_idx)
 
     model_path = os.path.join(folder, file_name+'.model')
     save(model, model_path)
-    config_path = os.path.join(folder, file_name+'.config')
-    pickle.dump(argument, open(config_path, 'wb'))
     logger.info('model saved at iter idx: {}, file name: {}'.format(iter_idx, file_name))
 
 
