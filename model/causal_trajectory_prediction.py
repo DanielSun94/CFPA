@@ -2,7 +2,6 @@ import torch
 
 if __name__ == '__main__':
     print('unit test in verification')
-import os
 from default_config import logger
 from torch import chunk, stack, squeeze, cat, eye, ones, no_grad, matmul, abs, sum, \
     trace, unsqueeze, LongTensor, randn, permute
@@ -10,14 +9,12 @@ from torch.linalg import matrix_exp
 from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, BCEWithLogitsLoss, Sigmoid, Softmax
 from torch.nn.utils.rnn import pad_sequence
 from torchdiffeq import odeint_adjoint as odeint
-from datetime import datetime
-import csv
 
 
 class TrajectoryPrediction(Module):
     def __init__(self, hidden_flag: str, constraint: str, input_size: int, hidden_size: int, batch_first: str,
                  time_offset: int, clamp_edge_threshold: float, device: str, bidirectional: str,
-                 dataset_name: str, mode: str, input_type_list: list):
+                 dataset_name: str, mode: str, process_name:str, input_type_list: list):
         super().__init__()
         assert hidden_flag == 'False' or hidden_flag == 'True'
         assert constraint in {'DAG', 'sparse', 'none'}
@@ -34,6 +31,7 @@ class TrajectoryPrediction(Module):
         self.dataset_name = dataset_name
         self.input_type_list = input_type_list
         self.clamp_edge_threshold = clamp_edge_threshold
+        self.process_name = process_name
         self.device = device
         self.init_net_bidirectional = True if bidirectional == 'True' else False
         self.mode = mode
@@ -218,7 +216,7 @@ class TrajectoryPrediction(Module):
     def clamp_edge(self):
         self.derivative.clamp_edge(self.clamp_edge_threshold)
 
-    def dump_graph(self, idx, folder=None):
+    def print_graph(self, idx, folder=None):
         return self.derivative.print_adjacency(idx, folder)
 
     def generate_binary_graph(self, threshold):
@@ -283,15 +281,19 @@ class CausalDerivative(Derivative):
         self.treatment_value = treatment_value
         self.treatment_idx = treatment_idx
 
+    def clamp_edge(self, clamp_edge_threshold):
+        with no_grad():
+            dag_net_list = self.net_list
+            connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
+            keep_edge = connect_mat > clamp_edge_threshold
+            self.adjacency *= keep_edge
+
     def print_adjacency(self, iter_idx, write_folder=None):
-        clamp_edge_threshold = self.clamp_edge_threshold
         with no_grad():
             net_list = self.net_list
             connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
             constraint = trace(matrix_exp((connect_mat > self.clamp_edge_threshold).float())) - self.input_size
         logger.info('binary graph constraint: {}'.format(constraint))
-
-        write_content = [[self.constraint_type]]
         connect_mat = connect_mat.to('cpu').numpy()
         logger.info('adjacency float')
         for item in connect_mat:
@@ -300,31 +302,7 @@ class CausalDerivative(Derivative):
                 key = float(key)
                 item_str_list.append('{:>9.9f}'.format(key))
             item_str = ', '.join(item_str_list)
-            logger.info('['+item_str+']')
-
-        logger.info('adjacency bool')
-        for item in connect_mat:
-            logger.info(item > clamp_edge_threshold)
-        for line in connect_mat:
-            line_content = []
-            for item in line:
-                line_content.append(item)
-            write_content.append(line_content)
-
-        if write_folder is not None:
-            now = datetime.now().strftime("%Y%m%d%H%M%S")
-            file_name = 'CTP.{}.{}.{}.{}.csv'\
-                .format(self.dataset_name, self.constraint_type, iter_idx, now)
-            write_path = os.path.join(write_folder, file_name)
-            with open(write_path, 'w', encoding='utf-8-sig', newline='') as f:
-                csv.writer(f).writerows(write_content)
-
-    def clamp_edge(self, clamp_edge_threshold):
-        with no_grad():
-            dag_net_list = self.net_list
-            connect_mat = self.calculate_connectivity_mat(dag_net_list, absolute=True)
-            keep_edge = connect_mat > clamp_edge_threshold
-            self.adjacency *= keep_edge
+            logger.info('[' + item_str + ']')
 
     def forward(self, t, inputs):
         # designed for this format

@@ -1,12 +1,12 @@
-import os
+import copy
 import numpy as np
-from torch import load, no_grad, FloatTensor, stack, squeeze, permute, mean
-from default_config import args, oracle_graph_dict, logger, treatment_result_folder, ckpt_folder
-from util import get_data_loader, get_oracle_model, save_model
+import torch
+from torch import no_grad, FloatTensor, mean
+from default_config import args, logger, ckpt_folder
+from util import get_data_loader, save_model
 from model.treatment_effect_evaluation import TreatmentEffectEstimator
 from torch.optim import Adam
 import random
-import pickle
 
 
 def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatment, max_epoch, max_iteration,
@@ -40,6 +40,8 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
 
             if treatment_warm_iter < iter_idx:
                 flag = not flag
+                filter_set = remove_module(model, val_loader, argument['treatment_filter_threshold'])
+                model.filter_set = model.filter_set.union(filter_set)
 
             if iter_idx % eval_iter_interval == 0:
                 observation_time_list = [FloatTensor([observation_time]) for _ in range(len(input_list))]
@@ -49,6 +51,28 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
             iter_idx += 1
     logger.info('optimization finished')
     return model
+
+
+def remove_module(model, val_loader, threshold):
+    with torch.no_grad():
+        models = model.models
+        filter_set = set()
+        for i, model in enumerate(models):
+            loss, idx = 0, 0
+            for batch in val_loader:
+                input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
+                label_mask_list, label_type_list = batch[6], batch[7]
+                predict_value_list = model(input_list, label_time_list)
+                output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list,
+                                                   label_type_list)
+                loss = output_dict['loss'] + loss
+                idx = idx + 1
+            if loss / idx > threshold:
+                if len(filter_set) < len(models) - 2:
+                    filter_set.add(i)
+    logger.info('{} models are filtered after warming and {} remains'.
+                format(len(filter_set), len(models)-len(filter_set)))
+    return filter_set
 
 
 def performance_evaluation(model, loader, loader_fraction, observation_time_list, epoch_idx=None, iter_idx=None):
@@ -74,7 +98,6 @@ def performance_evaluation(model, loader, loader_fraction, observation_time_list
     else:
         logger.info('final {}, predict loss: {:>8.8f}, treatment loss: {:>8.8f}'
                     .format(loader_fraction, pred_loss, treatment_loss))
-
 
 
 def framework(argument, oracle_graph):
@@ -103,6 +126,7 @@ def framework(argument, oracle_graph):
     max_iter = argument['treatment_max_iter']
     eval_iter_interval = argument['treatment_eval_iter_interval']
     new_model_number = argument['treatment_new_model_number']
+    process_name = argument['process_name']
     model_args = {
         'init_model_name': argument['treatment_init_model_name'],
         'hidden_flag': argument['hidden_flag'],
@@ -119,8 +143,9 @@ def framework(argument, oracle_graph):
     dataloader_dict, name_id_dict, _, id_type_list, stat_dict = \
         get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
                         reconstruct_input, predict_label, device=device)
-    treatment_idx = name_id_dict[treatment_feature]
 
+    treatment_value = (treatment_value - stat_dict[treatment_feature][0]) / stat_dict[treatment_feature][1]
+    treatment_idx = name_id_dict[treatment_feature]
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
 
@@ -129,7 +154,8 @@ def framework(argument, oracle_graph):
     models = TreatmentEffectEstimator(
         dataset_name=dataset_name, device=device, treatment_idx=treatment_idx, oracle_graph=oracle_graph,
         batch_size=batch_size, treatment_feature=treatment_feature, new_model_number=new_model_number,
-        id_type_list=id_type_list, model_args=model_args, treatment_time=treatment_time, treatment_value=treatment_value
+        id_type_list=id_type_list, model_args=model_args, treatment_time=treatment_time,
+        treatment_value=treatment_value, process_name=process_name
     )
 
     para_list_1, para_list_2 = [], []
@@ -139,37 +165,51 @@ def framework(argument, oracle_graph):
             para_list_2.append(para)
     optimizer_predict = Adam(para_list_1, lr=treatment_predict_lr)
     optimizer_treatment = Adam(para_list_2, lr=treatment_treatment_lr)
-
     train(train_dataloader, validation_dataloader, models, optimizer_predict, optimizer_treatment,
           max_epoch, max_iter, eval_iter_interval, treatment_observation_time, treatment_warm_iter, argument)
 
 
 def convert_oracle_graph(oracle_graph, name_id_dict):
+    new_name_id_dict = copy.deepcopy(name_id_dict)
     np_oracle = np.zeros([len(oracle_graph), len(oracle_graph)])
     if 'hidden' in oracle_graph:
-        name_id_dict['hidden'] = len(name_id_dict)
+        new_name_id_dict['hidden'] = len(new_name_id_dict)
     for key_1 in oracle_graph:
         for key_2 in oracle_graph[key_1]:
             value = oracle_graph[key_1][key_2]
-            idx_1 = name_id_dict[key_1]
-            idx_2 = name_id_dict[key_2]
+            idx_1 = new_name_id_dict[key_1]
+            idx_2 = new_name_id_dict[key_2]
             np_oracle[idx_1, idx_2] = value
-    oracle_graph = FloatTensor(np_oracle)
-    return oracle_graph
+    converted_graph = FloatTensor(np_oracle)
+    return converted_graph
 
 
-def read_oracle_graph(name):
-    if name == 'hao_true_not_causal':
-        return oracle_graph_dict[name]
-    elif name == 'hao_true_causal':
-        return oracle_graph_dict[name]
+def read_oracle_graph(dataset_name, hidden_flag, constraint):
+    if dataset_name == 'hao_true_lmci' and hidden_flag and constraint == 'DAG':
+        return {
+            'a': {'a': 1, 'tau_p': 1, 'n': 0, 'c': 0, 'hidden': 0},
+            'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
+            'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
+            'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'hidden': 0},
+            'hidden': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 1},
+        }
+    elif dataset_name == 'hao_true_lmci' and hidden_flag and (constraint == 'none' or constraint == 'sparse'):
+        return {
+            'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+            'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+            'n': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+            'c': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+            'hidden': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+        }
     else:
         raise ValueError('')
 
 
 def main():
-    name = 'hao_true_causal'
-    oracle_graph = read_oracle_graph(name)
+    dataset_name = args['dataset_name']
+    hidden_flag = True if args['hidden_flag'] == "True" else False
+    constraint = args['constraint_type']
+    oracle_graph = read_oracle_graph(dataset_name, hidden_flag, constraint)
     framework(args, oracle_graph)
 
 

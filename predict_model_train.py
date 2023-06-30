@@ -2,7 +2,8 @@ from default_config import args, logger, ckpt_folder, adjacency_mat_folder
 from model.causal_trajectory_prediction import TrajectoryPrediction
 from torch.optim import Adam
 from torch import FloatTensor
-from util import get_data_loader, save_model, LagrangianMultiplierStateUpdater, predict_performance_evaluation
+from util import get_data_loader, save_model, save_graph, LagrangianMultiplierStateUpdater, \
+    predict_performance_evaluation
 
 
 def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, argument):
@@ -20,8 +21,7 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
     iter_idx = 0
     predict_performance_evaluation(model, train_dataloader, 'train', 0, 0)
     predict_performance_evaluation(model, val_loader, 'valid', 0, 0)
-
-    model.dump_graph(0, adjacency_mat_folder)
+    model.print_graph(0, adjacency_mat_folder)
     logger.info('--------------------start training--------------------')
     for epoch_idx in range(max_epoch):
         for batch in train_dataloader:
@@ -68,10 +68,10 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             if iter_idx % eval_iter_interval == 0:
                 predict_performance_evaluation(model, train_dataloader, 'train', epoch_idx, iter_idx)
                 predict_performance_evaluation(model, val_loader, 'valid', epoch_idx, iter_idx)
-                model.dump_graph(iter_idx, adjacency_mat_folder)
-
-            if iter_idx == 1 or iter_idx % save_interval == 0:
-                save_model(model, 'CTP', ckpt_folder, epoch_idx, iter_idx, argument, 'predict')
+                model.print_graph(iter_idx, adjacency_mat_folder)
+                if iter_idx % save_interval == 0:
+                    save_model(model, 'CTP', ckpt_folder, epoch_idx, iter_idx, argument, 'predict')
+                    save_graph(model, 'CTP', adjacency_mat_folder, epoch_idx, iter_idx, argument)
     return model
 
 
@@ -110,6 +110,7 @@ def get_model(argument, id_type_list):
     bidirectional = argument['init_net_bidirectional']
     batch_first = argument['batch_first']
     dataset_name = argument['dataset_name']
+    process_name = argument['process_name']
     device = argument['device']
 
     # graph setting
@@ -122,7 +123,7 @@ def get_model(argument, id_type_list):
         hidden_flag=hidden_flag, constraint=constraint, input_size=input_size, hidden_size=hidden_size, mode=mode,
         batch_first=batch_first, time_offset=time_offset, input_type_list=id_type_list,
         device=device, clamp_edge_threshold=clamp_edge_threshold, bidirectional=bidirectional,
-        dataset_name=dataset_name)
+        dataset_name=dataset_name, process_name=process_name)
     return model
 
 

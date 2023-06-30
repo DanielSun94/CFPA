@@ -4,7 +4,7 @@ import sys
 import datetime
 import logging
 
-process_name = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+process_name = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
 sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'data_preprocess'))
 sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'model'))
 t = datetime.datetime.now()
@@ -13,18 +13,19 @@ script_path = os.path.split(os.path.realpath(__file__))[0]
 sim_data_folder = os.path.join(script_path, 'resource', 'simulated_data')
 adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_folder')
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
-treatment_result_folder = os.path.join(script_path, 'resource', 'treatment_result')
+treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
 
 dataset = 'hao_true_lmci'
 hidden_flag = 'True'
 distribution_mode = 'uniform'
-device = 'cuda:2'
+device = 'cuda:5'
 constraint_type = 'DAG'
 model = 'ODE'
 sparse_constraint_weight = 0.08
 
-new_model_number = 2
-treatment_init_model_name = 'predict.CTP.hao_true_lmci.True.DAG.20230321131253.0.1.model'
+new_model_number = 4
+treatment_init_model_name = ''
+inference_model_name = ''
 
 assert model in {'ODE'}
 
@@ -34,8 +35,8 @@ if not os.path.exists(adjacency_mat_folder):
     os.makedirs(adjacency_mat_folder)
 if not os.path.exists(ckpt_folder):
     os.makedirs(ckpt_folder)
-if not os.path.exists(treatment_result_folder):
-    os.makedirs(treatment_result_folder)
+if not os.path.exists(treatment_result_inference_folder):
+    os.makedirs(treatment_result_inference_folder)
 
 missing_flag_num = -99999
 
@@ -66,11 +67,11 @@ default_config = {
     # train setting
     'max_epoch': 10000,
     'max_iteration': 2000,
-    "batch_size": 512,
+    "batch_size": 128,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
     "learning_rate": 0.01,
-    "eval_iter_interval": 20,
+    "eval_iter_interval": 3,
     "eval_epoch_interval": -1,
     "device": device,
     "clamp_edge_flag": "False",
@@ -96,6 +97,7 @@ default_config = {
     "treatment_max_iter" : 2000,
     'treatment_new_model_number': new_model_number,
     'treatment_warm_iter': 100,
+    'inference_model_name': inference_model_name,
 
     # augmented Lagrangian predict phase
     "init_lambda_predict": 0.0,
@@ -193,6 +195,8 @@ parser.add_argument('--treatment_eval_iter_interval', help='', default=default_c
                     type=int)
 parser.add_argument('--treatment_new_model_number', help='', default=default_config['treatment_new_model_number'],
                     type=int)
+parser.add_argument('--inference_model_name', help='', default=default_config['inference_model_name'], type=str)
+
 
 args = vars(parser.parse_args())
 
@@ -221,7 +225,7 @@ else:
 log_folder = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'resource', 'log')
 if not os.path.exists(log_folder):
     os.makedirs(log_folder)
-log_file_name = os.path.join(log_folder, '{}.txt'.format(args['process_name']))
+log_file_name = os.path.join(log_folder, '{}.txt'.format('log'))
 format_ = "%(asctime)s %(process)d %(module)s %(lineno)d %(message)s"
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

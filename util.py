@@ -3,7 +3,7 @@ from data_preprocess.data_loader import SequentialVisitDataloader, SequentialVis
 import pickle
 import os
 from torch import save, no_grad, mean, FloatTensor
-from datetime import datetime
+import csv
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -39,6 +39,34 @@ def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_obser
     return dataloader_dict, name_id_dict, oracle_graph, id_type_list, stat_dict
 
 
+def save_graph(model, model_name, folder, epoch_idx, iter_idx, argument):
+    clamp_edge_threshold = model.clamp_edge_threshold
+    dataset_name = model.dataset_name
+    hidden_flag = model.hidden_flag
+    constraint_type = argument['constraint_type']
+    process_name = argument['process_name']
+
+    with no_grad():
+        net_list = model.derivative.net_list
+        connect_mat = model.derivative.calculate_connectivity_mat(net_list, absolute=True)
+    connect_mat = connect_mat.to('cpu').numpy()
+    logger.info('adjacency bool')
+    write_content = [[constraint_type]]
+    for item in connect_mat:
+        logger.info(item > clamp_edge_threshold)
+    for line in connect_mat:
+        line_content = []
+        for item in line:
+            line_content.append(item)
+        write_content.append(line_content)
+
+    file_name = '{}.{}.{}.{}.{}.{}.{}.{}'. \
+            format('predict', model_name, dataset_name, hidden_flag, constraint_type, process_name, epoch_idx, iter_idx)
+    write_path = os.path.join(folder, file_name)
+    with open(write_path, 'w', encoding='utf-8-sig', newline='') as f:
+        csv.writer(f).writerows(write_content)
+
+
 def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
     assert model_name == 'CTP' or model_name == 'TEP'
     identifier = argument['process_name']
@@ -56,7 +84,7 @@ def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
             format(phase, model_name, dataset_name, hidden_flag, identifier, epoch_idx, iter_idx)
 
     model_path = os.path.join(folder, file_name+'.model')
-    save(model, model_path)
+    save(model.state_dict(), model_path)
     logger.info('model saved at iter idx: {}, file name: {}'.format(iter_idx, file_name))
 
 
@@ -154,31 +182,8 @@ def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=Non
                     .format(loader_fraction, loss, graph_constraint, sparse_constraint))
 
 
-def preset_graph_converter(id_dict, graph):
-    dag_graph = np.zeros([len(id_dict), len(id_dict)])
-    bi_graph = np.zeros([len(id_dict), len(id_dict)])
-    for key_1 in graph['dag']:
-        for key_2 in graph['dag'][key_1]:
-            idx_1, idx_2 = id_dict[key_1], id_dict[key_2]
-            dag_graph[idx_1, idx_2] = graph['dag'][key_1][key_2]
-    for key_1 in graph['bi']:
-        for key_2 in graph['bi'][key_1]:
-            idx_1, idx_2 = id_dict[key_1], id_dict[key_2]
-            bi_graph[idx_1, idx_2] = graph['bi'][key_1][key_2]
-    return {'dag': dag_graph, 'bi': bi_graph}
-
-
-def get_oracle_model(model_name, para_dict, init_dict, time_offset, stat_dict):
-    if 'hao_true' in model_name:
-        return OracleHaoModel(True, para_dict, init_dict, time_offset, stat_dict)
-    elif 'hao_false' in model_name:
-        return OracleHaoModel(False, para_dict, init_dict, time_offset, stat_dict)
-    else:
-        raise ValueError('')
-
-
 class OracleHaoModel(object):
-    def __init__(self, hidden_type, init_dict, para_dict, time_offset, stat_dict):
+    def __init__(self, hidden_type, para_dict, init_dict, time_offset, stat_dict):
         self.hidden_type = hidden_type
         self.treatment_feature = None
         self.treatment_value = None
@@ -190,14 +195,19 @@ class OracleHaoModel(object):
         self.name_id_dict = {'a': 0, 'tau_p': 1, 'tau_o': 2, 'n': 3, 'c': 4}
 
     def set_treatment(self, treatment_feature, treatment_time, treatment_value):
-        self.treatment_time = treatment_time - self.time_offset
-        self.treatment_feature = treatment_feature
-        self.treatment_value = treatment_value
+        if not (treatment_feature is None and treatment_value is None and treatment_feature is None):
+            self.treatment_time = treatment_time - self.time_offset
+            self.treatment_feature = treatment_feature
+            self.treatment_value = treatment_value
 
     def derivative(self, t, y):
         assert isinstance(self.hidden_type, bool)
+        assert (self.treatment_time is None and self.treatment_value is None and self.treatment_feature is None) or \
+               (self.treatment_time is not None and self.treatment_value is not None and self.treatment_feature
+                is not None)
+
         para = self.para_dict
-        if t > self.treatment_time:
+        if self.treatment_time is not None and t > self.treatment_time:
             idx = self.name_id_dict[self.treatment_feature]
             y[idx] = self.treatment_value
 
@@ -218,7 +228,7 @@ class OracleHaoModel(object):
                 (para['lambda_cn'] * y[3] + para['lambda_ctau'] * y[1]) * (1 - y[4] / para['k_c'])
             ]
 
-        if t > self.treatment_time:
+        if self.treatment_time is not None and t > self.treatment_time:
             derivative[self.name_id_dict[self.treatment_feature]] = 0
         return derivative
 
@@ -238,8 +248,6 @@ class OracleHaoModel(object):
         return ordered_list
 
     def reorganize(self, result_list):
-        # 由于数据中对特征的排序是按照字母顺序排的，因此这里要重新排序
-        # 包括要拿掉数据中观测不到的数据
         a_list = [(item[0]-self.stat_dict['a'][0])/self.stat_dict['a'][1] for item in result_list]
         tau_p_list = [(item[1]-self.stat_dict['tau_p'][0])/self.stat_dict['tau_p'][1] for item in result_list]
         tau_o_list = [(item[2]-self.stat_dict['tau_o'][0])/self.stat_dict['tau_o'][1] for item in result_list]
@@ -247,12 +255,19 @@ class OracleHaoModel(object):
         c_list = [(item[4]-self.stat_dict['c'][0])/self.stat_dict['c'][1] for item in result_list]
 
         if self.hidden_type:
-            return_list = [
-                a_list, c_list, n_list, tau_p_list
-            ]
+            return_dict = {
+                'a': np.array(a_list),
+                'c': np.array(c_list),
+                'n': np.array(n_list),
+                'tau_p': np.array(tau_p_list)
+            }
         else:
-            return_list = [
-                a_list, c_list, n_list, tau_o_list, tau_p_list
-            ]
-        return np.array(return_list)
+            return_dict = {
+                'a': np.array(a_list),
+                'c': np.array(c_list),
+                'n': np.array(n_list),
+                'tau_o': np.array(tau_o_list),
+                'tau_p': np.array(tau_p_list)
+            }
+        return return_dict
 
