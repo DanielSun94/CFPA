@@ -1,4 +1,6 @@
-from default_config import args, logger, ckpt_folder, adjacency_mat_folder
+import numpy as np
+
+from default_config import args, logger, ckpt_folder, adjacency_mat_folder, oracle_graph_dict
 from model.causal_trajectory_prediction import TrajectoryPrediction
 from torch.optim import Adam
 from torch import FloatTensor
@@ -6,7 +8,7 @@ from util import get_data_loader, save_model, save_graph, LagrangianMultiplierSt
     predict_performance_evaluation
 
 
-def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, argument):
+def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, oracle_graph, argument):
     max_epoch = argument['max_epoch']
     max_iteration = argument['max_iteration']
     eval_iter_interval = argument['eval_iter_interval']
@@ -15,6 +17,7 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
     constraint_type = argument['constraint_type']
     weight = argument['sparse_constraint_weight']
     device = argument['device']
+
     assert clamp_edge_flag == 'True' or clamp_edge_flag == 'False'
     clamp_edge_flag = True if clamp_edge_flag == 'True' else False
 
@@ -73,6 +76,20 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
                     save_model(model, 'CTP', ckpt_folder, epoch_idx, iter_idx, argument, 'predict')
                     save_graph(model, 'CTP', adjacency_mat_folder, epoch_idx, iter_idx, argument)
     return model
+
+
+def get_oracle_causal_graph(causal_type, name_id_dict):
+    assert causal_type in oracle_graph_dict
+    oracle_graph = oracle_graph_dict[causal_type]
+    bool_graph = np.zeros([len(oracle_graph), len(oracle_graph)])
+    new_dict = {key: name_id_dict[key] for key in name_id_dict}
+    if 'hidden' not in new_dict and len(name_id_dict) == len(oracle_graph) - 1:
+        new_dict['hidden'] = len(new_dict)
+    for cause in oracle_graph:
+        for consequence in oracle_graph[cause]:
+            idx_1, idx_2 = new_dict[cause], new_dict[consequence]
+            bool_graph[idx_1, idx_2] = oracle_graph[cause][consequence]
+    return bool_graph
 
 
 def get_data(argument):
@@ -144,16 +161,19 @@ def get_lagrangian_updater(argument, validation_dataloader):
 
 
 def framework(argument):
-    dataloader_dict, name_id_dict, oracle_graph, id_type_list = get_data(argument)
+    dataloader_dict, name_id_dict, _, id_type_list = get_data(argument)
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
     test_dataloader = dataloader_dict['test']
+    causal_type = argument['causal_type']
 
+    oracle_graph = get_oracle_causal_graph(causal_type, name_id_dict)
     model = get_model(argument, id_type_list)
+    model.set_adjacency(oracle_graph)
     multiplier_updater = get_lagrangian_updater(argument, validation_dataloader)
 
     optimizer = Adam(model.parameters())
-    model = train(train_dataloader, validation_dataloader, model, multiplier_updater, optimizer, argument)
+    model = train(train_dataloader, validation_dataloader, model, multiplier_updater, optimizer, oracle_graph, argument)
     predict_performance_evaluation(model, test_dataloader, 'test')
 
 

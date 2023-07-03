@@ -15,13 +15,14 @@ adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_fold
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
 
-dataset = 'hao_true_lmci'
-hidden_flag = 'True'
+dataset = 'hao_false_lmci'
+hidden_flag = 'False'
 distribution_mode = 'uniform'
-device = 'cuda:5'
+device = 'cuda:6'
 constraint_type = 'DAG'
 model = 'ODE'
 sparse_constraint_weight = 0.08
+causal_type = 'hao_false_not_causal'
 
 new_model_number = 4
 treatment_init_model_name = ''
@@ -44,6 +45,7 @@ missing_flag_num = -99999
 default_config = {
     'process_name': process_name,
     'model': model,
+    'causal_type': causal_type,
     # 'causal_derivative_flag': causal_derivative_flag,
 
     # dataset config
@@ -71,7 +73,7 @@ default_config = {
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
     "learning_rate": 0.01,
-    "eval_iter_interval": 3,
+    "eval_iter_interval": 20,
     "eval_epoch_interval": -1,
     "device": device,
     "clamp_edge_flag": "False",
@@ -124,6 +126,7 @@ default_config = {
 parser = argparse.ArgumentParser()
 parser.add_argument('--process_name', help='', default=default_config['process_name'], type=str)
 parser.add_argument('--model_name', help='', default=default_config['model'], type=str)
+parser.add_argument('--causal_type', help='', default=default_config['causal_type'], type=str)
 # parser.add_argument('--causal_derivative_flag', help='', default=default_config['causal_derivative_flag'], type=str)
 
 # dataset config
@@ -251,7 +254,7 @@ oracle_graph_dict ={
         'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
         'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
         'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'hidden': 0},
-        'hidden': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 1},
+        'hidden': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
     },
     'hao_true_not_causal': {
         'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
@@ -259,5 +262,19 @@ oracle_graph_dict ={
         'n': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
         'c': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
         'hidden': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-    }
+    },
+    'hao_false_causal': {
+        'a': {'a': 1, 'tau_p': 1, 'n': 0, 'c': 0, 'tau_o': 0},
+        'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 0},
+        'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'tau_o': 0},
+        'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'tau_o': 0},
+        'tau_o': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
+    },
+    'hao_false_not_causal': {
+        'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
+        'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
+        'n': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
+        'c': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
+        'tau_o': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
+    },
 }

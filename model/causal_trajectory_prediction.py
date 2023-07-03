@@ -1,10 +1,8 @@
-import torch
-
 if __name__ == '__main__':
     print('unit test in verification')
 from default_config import logger
 from torch import chunk, stack, squeeze, cat, eye, ones, no_grad, matmul, abs, sum, \
-    trace, unsqueeze, LongTensor, randn, permute
+    trace, unsqueeze, LongTensor, randn, permute, FloatTensor, zeros
 from torch.linalg import matrix_exp
 from torch.nn import Module, LSTM, Sequential, ReLU, Linear, MSELoss, ParameterList, BCEWithLogitsLoss, Sigmoid, Softmax
 from torch.nn.utils.rnn import pad_sequence
@@ -213,6 +211,9 @@ class TrajectoryPrediction(Module):
     def calculate_constraint(self):
         return self.derivative.graph_constraint(), self.derivative.sparse_constraint()
 
+    def set_adjacency(self, oracle):
+        self.derivative.set_adjacency(oracle)
+
     def clamp_edge(self):
         self.derivative.clamp_edge(self.clamp_edge_threshold)
 
@@ -257,7 +258,6 @@ class CausalDerivative(Derivative):
         self.clamp_edge_threshold = clamp_edge_threshold
         self.dataset_name = dataset_name
         self.input_type_list = input_type_list
-        self.bi_directed_net_list = None
 
         self.treatment_idx = None
         self.treatment_value = None
@@ -275,6 +275,9 @@ class CausalDerivative(Derivative):
 
         self.net_list.to(device)
         self.adjacency = (ones([input_size, input_size])).to(device)
+
+    def set_adjacency(self, adjacency):
+        self.adjacency = FloatTensor(adjacency).to(self.device)
 
     def set_treatment(self, treatment_idx, treatment_value, treatment_time):
         self.treatment_time = treatment_time
@@ -338,7 +341,7 @@ class CausalDerivative(Derivative):
 
             # 这一情况下最后一个item默认是隐变量，不考虑其它变量预测
             if i == self.input_size-1 and self.hidden_flag:
-                feature_filter = torch.zeros([1, 1, self.input_size]).to(self.device)
+                feature_filter = zeros([1, 1, self.input_size]).to(self.device)
                 feature_filter[0, 0, -1] = 1
                 input_1 = input_1 * feature_filter
 
