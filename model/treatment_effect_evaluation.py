@@ -96,4 +96,6 @@ class TreatmentEffectEstimator(Module):
                 model.derivative.set_treatment(None, None, None)
         else:
             for model in self.models:
-                model.derivative.set_treatment(self.treatment_idx, self.treatment_value, self.treatment_time)
+                time_offset = model.time_offset
+                time = self.treatment_time-time_offset
+                model.derivative.set_treatment(self.treatment_idx, self.treatment_value, time)

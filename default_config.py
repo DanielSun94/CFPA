@@ -15,19 +15,19 @@ adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_fold
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
 
-dataset = 'hao_false_lmci'
-hidden_flag = 'False'
+dataset = 'hao_true_lmci'
+hidden_flag = 'True'
 distribution_mode = 'uniform'
-device = 'cuda:6'
+device = 'cuda:0'
 constraint_type = 'DAG'
 model = 'ODE'
 sparse_constraint_weight = 0.08
-causal_type = 'hao_false_not_causal'
+prior_causal_mask = 'hao_true_not_causal'
+non_linear_mode = "True"
 
-new_model_number = 4
+new_model_number = 5
 treatment_init_model_name = ''
-inference_model_name = ''
-
+treatment_filter_threshold = 1
 assert model in {'ODE'}
 
 if not os.path.exists(sim_data_folder):
@@ -45,7 +45,7 @@ missing_flag_num = -99999
 default_config = {
     'process_name': process_name,
     'model': model,
-    'causal_type': causal_type,
+    'prior_causal_mask': prior_causal_mask,
     # 'causal_derivative_flag': causal_derivative_flag,
 
     # dataset config
@@ -65,10 +65,11 @@ default_config = {
     "hidden_size": 4,
     'init_pooling': 'mean',
     'init_net_bidirectional': "True",
+    'non_linear_mode': non_linear_mode,
 
     # train setting
-    'max_epoch': 10000,
-    'max_iteration': 2000,
+    'max_epoch': 3000,
+    'max_iteration': 3000,
     "batch_size": 128,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
@@ -99,7 +100,7 @@ default_config = {
     "treatment_max_iter" : 2000,
     'treatment_new_model_number': new_model_number,
     'treatment_warm_iter': 100,
-    'inference_model_name': inference_model_name,
+    'treatment_filter_threshold': treatment_filter_threshold,
 
     # augmented Lagrangian predict phase
     "init_lambda_predict": 0.0,
@@ -126,7 +127,7 @@ default_config = {
 parser = argparse.ArgumentParser()
 parser.add_argument('--process_name', help='', default=default_config['process_name'], type=str)
 parser.add_argument('--model_name', help='', default=default_config['model'], type=str)
-parser.add_argument('--causal_type', help='', default=default_config['causal_type'], type=str)
+parser.add_argument('--prior_causal_mask', help='', default=default_config['prior_causal_mask'], type=str)
 # parser.add_argument('--causal_derivative_flag', help='', default=default_config['causal_derivative_flag'], type=str)
 
 # dataset config
@@ -143,6 +144,7 @@ parser.add_argument('--distribution_mode', help='', default=default_config['dist
 parser.add_argument('--hidden_flag', help='', default=default_config['hidden_flag'], type=str)
 
 # model config
+parser.add_argument('--non_linear_mode', help='', default=default_config['non_linear_mode'], type=str)
 parser.add_argument('--hidden_size', help='', default=default_config['hidden_size'], type=int)
 parser.add_argument('--init_pooling', help='', default=default_config['init_pooling'], type=str)
 parser.add_argument('--init_net_bidirectional', help='',
@@ -198,8 +200,8 @@ parser.add_argument('--treatment_eval_iter_interval', help='', default=default_c
                     type=int)
 parser.add_argument('--treatment_new_model_number', help='', default=default_config['treatment_new_model_number'],
                     type=int)
-parser.add_argument('--inference_model_name', help='', default=default_config['inference_model_name'], type=str)
-
+parser.add_argument('--treatment_filter_threshold', help='', default=default_config['treatment_filter_threshold'],
+                    type=float)
 
 args = vars(parser.parse_args())
 

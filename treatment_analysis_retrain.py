@@ -38,10 +38,12 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
                 loss.backward()
                 optimizer_treatment.step()
 
-            if treatment_warm_iter < iter_idx:
-                flag = not flag
+            if treatment_warm_iter == iter_idx:
                 filter_set = remove_module(model, val_loader, argument['treatment_filter_threshold'])
                 model.filter_set = model.filter_set.union(filter_set)
+
+            if treatment_warm_iter < iter_idx:
+                flag = not flag
 
             if iter_idx % eval_iter_interval == 0:
                 observation_time_list = [FloatTensor([observation_time]) for _ in range(len(input_list))]

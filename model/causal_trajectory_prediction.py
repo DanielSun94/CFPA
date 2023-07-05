@@ -11,15 +11,16 @@ from torchdiffeq import odeint_adjoint as odeint
 
 class TrajectoryPrediction(Module):
     def __init__(self, hidden_flag: str, constraint: str, input_size: int, hidden_size: int, batch_first: str,
-                 time_offset: int, clamp_edge_threshold: float, device: str, bidirectional: str,
-                 dataset_name: str, mode: str, process_name:str, input_type_list: list):
+                 time_offset: int, clamp_edge_threshold: float, device: str, bidirectional: str, non_linear_mode: str,
+                 dataset_name: str, data_mode: str, process_name:str, input_type_list: list):
         super().__init__()
         assert hidden_flag == 'False' or hidden_flag == 'True'
         assert constraint in {'DAG', 'sparse', 'none'}
         assert bidirectional == 'True' or bidirectional == 'False'
         assert batch_first == 'True' or batch_first == 'False'
+        assert non_linear_mode == 'True' or non_linear_mode == 'False'
         # mode指代输入的数据的时间间隔是固定的还是随机的，如果是固定的可以用序列化处理，随机的必须一条一条算
-        assert mode == 'uniform' or 'random'
+        assert data_mode == 'uniform' or 'random'
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.hidden_flag = True if hidden_flag == 'True' else False
@@ -32,7 +33,8 @@ class TrajectoryPrediction(Module):
         self.process_name = process_name
         self.device = device
         self.init_net_bidirectional = True if bidirectional == 'True' else False
-        self.mode = mode
+        self.data_mode = data_mode
+        self.non_linear_mode = True if non_linear_mode == 'True' else False
         self.batch_first = True if batch_first == 'True' else False
         self.mse_loss_func = MSELoss(reduction='none')
         self.cross_entropy_func = BCEWithLogitsLoss(reduction='none')
@@ -49,7 +51,8 @@ class TrajectoryPrediction(Module):
 
 
         self.derivative = CausalDerivative(constraint, self.derivative_dim, hidden_size, dataset_name, device,
-                                           clamp_edge_threshold, input_type_list, self.hidden_flag)
+                                           clamp_edge_threshold, input_type_list, self.hidden_flag,
+                                           self.non_linear_mode)
 
         self.project_net.to(device)
         self.init_network.to(device)
@@ -91,7 +94,7 @@ class TrajectoryPrediction(Module):
         init_value = init_value + std * init_std
         init_value = init_value.reshape([batch_size * self.sample_multiplier, self.derivative_dim])
 
-        if self.mode == 'random':
+        if self.data_mode == 'random':
             predict_value_list = []
             init_value_list = chunk(init_value, init_value.shape[0], dim=0)
             label_time_list_multiplier = []
@@ -103,7 +106,7 @@ class TrajectoryPrediction(Module):
                 predict_value = squeeze(odeint(self.derivative, init_value, time))
                 predict_value_list.append(predict_value)
         else:
-            assert self.mode == 'uniform'
+            assert self.data_mode == 'uniform'
             time = (label_time_list[0] - self.time_offset).to(self.device)
             predict_value = odeint(self.derivative, init_value, time)
             predict_value = permute(predict_value, [1, 0, 2])
@@ -124,7 +127,7 @@ class TrajectoryPrediction(Module):
         assert len(prediction_list.shape) == 3 and prediction_list.shape[2] == self.input_size
 
         consistent_feature = self.consistent_feature
-        if self.mode == 'uniform' and consistent_feature != 'none':
+        if self.data_mode == 'uniform' and consistent_feature != 'none':
             if consistent_feature == 'continuous':
                 loss_func = self.mse_loss_func
             elif consistent_feature == 'discrete':
@@ -246,7 +249,7 @@ class Derivative(Module):
 
 class CausalDerivative(Derivative):
     def __init__(self, constraint_type: str, input_size: int, hidden_size: int, dataset_name: str, device: str,
-                 clamp_edge_threshold: float, input_type_list: list, hidden_flag:bool):
+                 clamp_edge_threshold: float, input_type_list: list, hidden_flag:bool, non_linear_mode: bool):
         super().__init__()
         self.constraint_type = constraint_type
         self.input_size = input_size
@@ -258,20 +261,29 @@ class CausalDerivative(Derivative):
         self.clamp_edge_threshold = clamp_edge_threshold
         self.dataset_name = dataset_name
         self.input_type_list = input_type_list
+        self.non_linear_mode = non_linear_mode
 
         self.treatment_idx = None
         self.treatment_value = None
         self.treatment_time = None
 
         self.net_list = ParameterList()
-        for i in range(self.input_size):
-            self.net_list.append(
-                Sequential(
-                    Linear(self.input_size, hidden_size, bias=False),
-                    ReLU(),
-                    Linear(hidden_size, 1, bias=False),
+        if non_linear_mode:
+            for i in range(self.input_size):
+                self.net_list.append(
+                    Sequential(
+                        Linear(self.input_size, hidden_size, bias=False),
+                        ReLU(),
+                        Linear(hidden_size, 1, bias=False),
+                    )
                 )
-            )
+        else:
+            for i in range(self.input_size):
+                self.net_list.append(
+                    Sequential(
+                        Linear(self.input_size, 1, bias=False),
+                    )
+                )
 
         self.net_list.to(device)
         self.adjacency = (ones([input_size, input_size])).to(device)
@@ -350,6 +362,9 @@ class CausalDerivative(Derivative):
 
         output_feature = cat(output_feature, dim=2)
         output_feature = squeeze(output_feature, dim=1)
+
+        if self.treatment_time is not None and t > self.treatment_time:
+            output_feature[:, self.treatment_idx] = 0
         return output_feature
 
     def sparse_constraint(self):

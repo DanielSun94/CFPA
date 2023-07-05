@@ -78,9 +78,9 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, or
     return model
 
 
-def get_oracle_causal_graph(causal_type, name_id_dict):
-    assert causal_type in oracle_graph_dict
-    oracle_graph = oracle_graph_dict[causal_type]
+def get_oracle_causal_graph(prior_causal_mask, name_id_dict):
+    assert prior_causal_mask in oracle_graph_dict
+    oracle_graph = oracle_graph_dict[prior_causal_mask]
     bool_graph = np.zeros([len(oracle_graph), len(oracle_graph)])
     new_dict = {key: name_id_dict[key] for key in name_id_dict}
     if 'hidden' not in new_dict and len(name_id_dict) == len(oracle_graph) - 1:
@@ -122,12 +122,13 @@ def get_data(argument):
 def get_model(argument, id_type_list):
     input_size = argument['input_size']
     time_offset = argument['time_offset']
-    mode = argument['distribution_mode']
+    data_mode = argument['distribution_mode']
     hidden_size = argument['hidden_size']
     bidirectional = argument['init_net_bidirectional']
     batch_first = argument['batch_first']
     dataset_name = argument['dataset_name']
     process_name = argument['process_name']
+    non_linear_mode = argument['non_linear_mode']
     device = argument['device']
 
     # graph setting
@@ -137,9 +138,9 @@ def get_model(argument, id_type_list):
 
 
     model = TrajectoryPrediction(
-        hidden_flag=hidden_flag, constraint=constraint, input_size=input_size, hidden_size=hidden_size, mode=mode,
-        batch_first=batch_first, time_offset=time_offset, input_type_list=id_type_list,
-        device=device, clamp_edge_threshold=clamp_edge_threshold, bidirectional=bidirectional,
+        hidden_flag=hidden_flag, constraint=constraint, input_size=input_size, hidden_size=hidden_size,
+        batch_first=batch_first, time_offset=time_offset, input_type_list=id_type_list, non_linear_mode=non_linear_mode,
+        device=device, clamp_edge_threshold=clamp_edge_threshold, bidirectional=bidirectional,data_mode=data_mode,
         dataset_name=dataset_name, process_name=process_name)
     return model
 
@@ -165,9 +166,9 @@ def framework(argument):
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
     test_dataloader = dataloader_dict['test']
-    causal_type = argument['causal_type']
+    prior_causal_mask = argument['prior_causal_mask']
 
-    oracle_graph = get_oracle_causal_graph(causal_type, name_id_dict)
+    oracle_graph = get_oracle_causal_graph(prior_causal_mask, name_id_dict)
     model = get_model(argument, id_type_list)
     model.set_adjacency(oracle_graph)
     multiplier_updater = get_lagrangian_updater(argument, validation_dataloader)

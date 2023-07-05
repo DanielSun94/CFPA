@@ -163,23 +163,29 @@ class LagrangianMultiplierStateUpdater(object):
 def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=None, iter_idx=None):
     with no_grad():
         loss_list = []
+        pred_loss_list = []
+        reconstruct_loss_list = []
         for batch in loader:
             input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
             label_mask_list, label_type_list = batch[6], batch[7]
             predict_value_list = model(input_list, label_time_list)
             output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list, label_type_list)
-            loss = output_dict['loss']
-            loss_list.append(loss)
+            loss_list.append(output_dict['loss'])
+            reconstruct_loss_list.append(output_dict['reconstruct_loss'])
+            pred_loss_list.append(output_dict['predict_loss'])
         loss = mean(FloatTensor(loss_list)).item()
+        prediction_loos = mean(FloatTensor(pred_loss_list)).item()
+        recons_loss = mean(FloatTensor(reconstruct_loss_list)).item()
         graph_constraint, sparse_constraint = model.calculate_constraint()
         graph_constraint = graph_constraint.item()
         sparse_constraint = sparse_constraint.item()
     if epoch_idx is not None:
-        logger.info('epoch: {:>4d}, iter: {:>4d}, {:>6s} loss: {:>8.8f}, graph cons: {:>8.8f}, sparse cons: {:>8.8f}'
-            .format(epoch_idx, iter_idx, loader_fraction, loss, graph_constraint, sparse_constraint))
+        logger.info('iter: {:>4d}, epoch: {:>3d}, {:>5s}. f_l: {:>4.4}, p_l: {:>4.4f}, r_l: {:>4.4f}, g_l: {:>8.8f}, '
+                    's_l: {:>8.8f}'.format(iter_idx, epoch_idx, loader_fraction, loss, prediction_loos, recons_loss,
+                                           graph_constraint, sparse_constraint))
     else:
-        logger.info('final {} loss: {:>8.8f}, graph cons: {:>8.8f}, sparse cons: {:>8.8f}'
-                    .format(loader_fraction, loss, graph_constraint, sparse_constraint))
+        logger.info('final, {:>5s}. f_l: {:>4.4}, p_l: {:>4.4f}, r_l: {:>4.4f}, g_l: {:>8.8f}, s_l: {:>8.8f}'
+            .format(loader_fraction, loss, prediction_loos, recons_loss, graph_constraint, sparse_constraint))
 
 
 class OracleHaoModel(object):

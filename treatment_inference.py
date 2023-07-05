@@ -27,8 +27,11 @@ def main(argument):
     obs_time = argument['treatment_observation_time']
     t_value = argument['treatment_value']
     constraint = argument['constraint_type']
-    inference_model_name = argument['inference_model_name']
-    new_model_number = argument['treatment_new_model_number']
+
+    inference_model_name_dict = {
+        'model_1': 'treatment.TEP.hao_true_lmci.True.20230326072007150451.0.0.model',
+        'model_2': 'treatment.TEP.hao_true_lmci.True.20230326072007150451.0.0.model'
+    }
 
     oracle_graph = read_oracle_graph(dataset_name, hidden_flag, constraint)
     dataloader_dict, name_id_dict, _, id_type_list, stat_dict = \
@@ -40,53 +43,49 @@ def main(argument):
 
     # 干预要经过正态转换
     mean, std = stat_dict[t_feature]
+    origin_t_value = t_value
     t_value = (t_value - mean) / std
     time_list = np.array([(i + 1) * 0.05 * (obs_time - time_offset) + time_offset for i in range(20)])
 
-    model_treatment_dataset = generate_model_behavior(
-        hidden_flag, test_dataset, dataset_name, t_feature, t_time, time_list, t_value, t_idx, time_offset,
-        inference_model_name, oracle_graph, id_type_list, name_id_dict, device, argument
-    )
-    model_origin_dataset = generate_model_behavior(
-        hidden_flag, test_dataset, dataset_name, None, None, time_list, None, None,time_offset,
-        inference_model_name, oracle_graph, id_type_list, name_id_dict, device, argument
-    )
+    oracle_treatment_dataset = generate_oracle_behavior(
+        hidden_flag, test_dataset, dataset_name, stat_dict, t_feature, t_time, time_list, origin_t_value, time_offset)
     oracle_original_dataset = generate_oracle_behavior(
         hidden_flag, test_dataset, dataset_name, stat_dict, None, None, time_list, None, time_offset)
-    oracle_treatment_dataset = generate_oracle_behavior(
-        hidden_flag, test_dataset, dataset_name, stat_dict, t_feature, t_time, time_list, t_value, time_offset)
 
+    data_dict = dict()
+    for key in inference_model_name_dict:
+        inference_model_name = inference_model_name_dict[key]
+        model_treatment_dataset = generate_model_behavior(
+            hidden_flag, test_dataset, dataset_name, t_feature, t_time, time_list, t_value, t_idx,
+            inference_model_name, oracle_graph, id_type_list, name_id_dict, device, argument
+        )
+        model_origin_dataset = generate_model_behavior(
+            hidden_flag, test_dataset, dataset_name, None, None, time_list, None, None,
+            inference_model_name, oracle_graph, id_type_list, name_id_dict, device, argument
+        )
+        data_dict[key+'_treatment'] = model_treatment_dataset
+        data_dict[key + '_origin'] = model_origin_dataset
+    data_dict['oracle_treatment'] = oracle_treatment_dataset
+    data_dict['oracle_origin'] = oracle_original_dataset
 
-    data_dict = {
-        'oracle_origin': oracle_original_dataset,
-        'oracle_treatment': oracle_treatment_dataset,
-        'model_treatment': model_treatment_dataset,
-        'model_origin': model_origin_dataset
-    }
     fused_dict = fuse_result(data_dict, time_list)
-
-    file_name = "{}.{}.{}.{}.{}.{}.{}.pkl"\
-        .format(dataset_name, hidden_flag, t_feature, t_time, t_value, constraint, new_model_number)
-    pickle.dump([fused_dict, time_list], open(os.path.join(treatment_result_inference_folder, file_name), 'wb'))
+    file_name = "{},{},{},{},{},{}.pkl"\
+        .format(dataset_name, hidden_flag, t_feature, t_time, origin_t_value, constraint)
+    pickle.dump(fused_dict, open(os.path.join(treatment_result_inference_folder, file_name), 'wb'))
 
 
 def fuse_result(data_dict, time_list):
-    assert len(data_dict['oracle_origin'][0]) == len(data_dict['oracle_origin'][1])
-    assert len(data_dict['oracle_treatment'][0]) == len(data_dict['oracle_treatment'][1])
-    assert len(data_dict['model_treatment'][0]) == len(data_dict['model_treatment'][1])
-    assert len(data_dict['model_origin'][0]) == len(data_dict['model_origin'][1])
-    assert len(data_dict['model_origin'][0]) == len(data_dict['model_treatment'][0])
     result_dict = dict()
     for i in range(len(data_dict['oracle_origin'][1])):
         assert data_dict['oracle_origin'][1][i] not in result_dict
         result_dict[data_dict['oracle_origin'][1][i]] = {'oracle_origin': data_dict['oracle_origin'][0][i]}
     for i in range(len(data_dict['oracle_origin'][1])):
-        assert data_dict['oracle_treatment'][1][i] in result_dict
-        result_dict[data_dict['oracle_treatment'][1][i]]['oracle_treatment'] = data_dict['oracle_treatment'][0][i]
-        assert data_dict['model_treatment'][1][i] in result_dict
-        result_dict[data_dict['model_treatment'][1][i]]['model_treatment'] = data_dict['model_treatment'][0][i]
-        assert data_dict['model_origin'][1][i] in result_dict
-        result_dict[data_dict['model_origin'][1][i]]['model_origin'] = data_dict['model_origin'][0][i]
+        for key in data_dict:
+            if key == 'oracle_origin':
+                continue
+            result_dict[data_dict[key][1][i]][key] = data_dict[key][0][i]
+            result_dict[data_dict[key][1][i]][key] = data_dict[key][0][i]
+            result_dict[data_dict[key][1][i]][key] = data_dict[key][0][i]
     return result_dict, time_list
 
 
@@ -112,7 +111,7 @@ def generate_oracle_behavior(hidden_flag, dataloader, dataset, stat_dict, treatm
 
 
 def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_feature, treatment_time, time_list,
-                            treatment_value, treatment_idx, time_offset, inference_model_name, oracle_graph,
+                            treatment_value, treatment_idx, inference_model_name, oracle_graph,
                             id_type_list, name_id_dict, device, argument):
     batch_size = dataloader.batch_size
     new_model_number = argument['treatment_new_model_number']
@@ -137,22 +136,22 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
         process_name=process_name, treatment_value=treatment_value
     )
     trained_model = torch.load(os.path.join(ckpt_folder, inference_model_name))
-    model.oracle_graph = trained_model.oracle_graph
-    model.load_state_dict(trained_model.state_dict())
+    model.load_state_dict(trained_model)
     model.to(device)
 
     assert argument['hidden_flag'] == 'True' or argument['hidden_flag'] == "False"
     assert True if argument['hidden_flag'] == "True" else False == hidden_flag
-    assert trained_model.new_model_number == model.new_model_number
-    assert trained_model.models[0].hidden_flag == model.models[0].hidden_flag
-    assert trained_model.models[0].time_offset == time_offset
-    assert trained_model.models[0].dataset_name == model.models[0].dataset_name
-    assert model.treatment_feature is None or trained_model.treatment_feature == model.treatment_feature
-    assert model.treatment_value is None or trained_model.treatment_value == model.treatment_value
-    assert model.treatment_time is None or trained_model.treatment_time == model.treatment_time
-    assert (treatment_feature is None and treatment_time is None and treatment_value is None) or \
-           (treatment_feature is not None and treatment_time is not None and treatment_value is not None)
-    assert hidden_flag == True or (hidden_flag is False and new_model_number == 1)
+    # 注释掉是因为保存的是state dict，以下信息均无效了
+    # assert trained_model.new_model_number == model.new_model_number
+    # assert trained_model.models[0].hidden_flag == model.models[0].hidden_flag
+    # assert trained_model.models[0].time_offset == time_offset
+    # assert trained_model.models[0].dataset_name == model.models[0].dataset_name
+    # assert model.treatment_feature is None or trained_model.treatment_feature == model.treatment_feature
+    # assert model.treatment_value is None or trained_model.treatment_value == model.treatment_value
+    # assert model.treatment_time is None or trained_model.treatment_time == model.treatment_time
+    # assert (treatment_feature is None and treatment_time is None and treatment_value is None) or \
+    #        (treatment_feature is not None and treatment_time is not None and treatment_value is not None)
+    # assert hidden_flag == True or (hidden_flag is False and new_model_number == 1)
     if treatment_feature is None and treatment_time is None and treatment_value is None:
         mode = 'predict'
     else:
@@ -173,6 +172,7 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
         for i in range(len(batch_id)):
             sample_result = dict()
             reorganized_sample_list.append(batch_id[i])
+
             for name in name_id_dict:
                 name_idx = name_id_dict[name]
                 feature_result = []
