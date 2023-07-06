@@ -8,7 +8,7 @@ from util import get_data_loader, save_model, save_graph, LagrangianMultiplierSt
     predict_performance_evaluation
 
 
-def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, oracle_graph, argument):
+def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, argument):
     max_epoch = argument['max_epoch']
     max_iteration = argument['max_iteration']
     eval_iter_interval = argument['eval_iter_interval']
@@ -81,6 +81,8 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, or
 def get_oracle_causal_graph(prior_causal_mask, name_id_dict):
     assert prior_causal_mask in oracle_graph_dict
     oracle_graph = oracle_graph_dict[prior_causal_mask]
+    logger.info('prior causal mask')
+    logger.info(oracle_graph)
     bool_graph = np.zeros([len(oracle_graph), len(oracle_graph)])
     new_dict = {key: name_id_dict[key] for key in name_id_dict}
     if 'hidden' not in new_dict and len(name_id_dict) == len(oracle_graph) - 1:
@@ -110,8 +112,6 @@ def get_data(argument):
     if len(id_type_list) <= 10:
         logger.info('name id dict')
         logger.info(name_id_dict)
-        logger.info('oracle')
-        logger.info(oracle_graph)
         logger.info('id type list')
         logger.info(id_type_list)
     else:
@@ -166,15 +166,15 @@ def framework(argument):
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
     test_dataloader = dataloader_dict['test']
-    prior_causal_mask = argument['prior_causal_mask']
+    prior_causal_mask_name = argument['prior_causal_mask']
 
-    oracle_graph = get_oracle_causal_graph(prior_causal_mask, name_id_dict)
+    prior_causal_mask = get_oracle_causal_graph(prior_causal_mask_name, name_id_dict)
     model = get_model(argument, id_type_list)
-    model.set_adjacency(oracle_graph)
+    model.set_adjacency(prior_causal_mask)
     multiplier_updater = get_lagrangian_updater(argument, validation_dataloader)
 
     optimizer = Adam(model.parameters())
-    model = train(train_dataloader, validation_dataloader, model, multiplier_updater, optimizer, oracle_graph, argument)
+    model = train(train_dataloader, validation_dataloader, model, multiplier_updater, optimizer, argument)
     predict_performance_evaluation(model, test_dataloader, 'test')
 
 

@@ -14,11 +14,12 @@ sim_data_folder = os.path.join(script_path, 'resource', 'simulated_data')
 adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_folder')
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
+fig_save_folder = os.path.join(script_path, 'resource', 'figure')
 
 dataset = 'hao_true_lmci'
 hidden_flag = 'True'
 distribution_mode = 'uniform'
-device = 'cuda:0'
+device = 'cuda:1'
 constraint_type = 'DAG'
 model = 'ODE'
 sparse_constraint_weight = 0.08
@@ -38,7 +39,8 @@ if not os.path.exists(ckpt_folder):
     os.makedirs(ckpt_folder)
 if not os.path.exists(treatment_result_inference_folder):
     os.makedirs(treatment_result_inference_folder)
-
+if not os.path.exists(fig_save_folder):
+    os.makedirs(fig_save_folder)
 missing_flag_num = -99999
 
 
@@ -256,7 +258,7 @@ oracle_graph_dict ={
         'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
         'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
         'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'hidden': 0},
-        'hidden': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
+        'hidden': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 1},
     },
     'hao_true_not_causal': {
         'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},

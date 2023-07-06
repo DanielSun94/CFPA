@@ -4,6 +4,7 @@ import pickle
 import os
 from torch import save, no_grad, mean, FloatTensor
 import csv
+from torch.nn import MSELoss, BCEWithLogitsLoss
 import numpy as np
 from scipy.integrate import solve_ivp
 
