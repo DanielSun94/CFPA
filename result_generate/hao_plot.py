@@ -80,7 +80,6 @@ def treatment_effect_estimation(start_time, end_time, time, full_data, oracle_mo
 
 
 
-
 def figure_plot(start_time, end_time, treat_time, time, plot_data, model_name_list, feature_list, data_set, sample_id):
     for feature in feature_list:
         fig, ax = plt.subplots(figsize=[3, 3], dpi=200, layout='tight')

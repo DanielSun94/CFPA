@@ -116,6 +116,8 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
     batch_size = dataloader.batch_size
     new_model_number = argument['treatment_new_model_number']
     process_name = argument['process_name']
+    optimize_method = argument['treatment_optimize_method']
+    sample_multiplier = argument['treatment_sample_multiplier']
     model_args = {
         'init_model_name': None,
         'hidden_flag': argument['hidden_flag'],
@@ -133,7 +135,7 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
         dataset_name=dataset_name, device=device, treatment_idx=treatment_idx, oracle_graph=oracle_graph,
         batch_size=batch_size, treatment_feature=treatment_feature, new_model_number=new_model_number,
         id_type_list=id_type_list, model_args=model_args, treatment_time=treatment_time,
-        process_name=process_name, treatment_value=treatment_value
+        process_name=process_name, treatment_value=treatment_value, optimize_method=optimize_method
     )
     trained_model = torch.load(os.path.join(ckpt_folder, inference_model_name))
     model.load_state_dict(trained_model)
@@ -163,7 +165,7 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
     with torch.no_grad():
         for batch in dataloader:
             input_list, _, _, _, _, _, _, _, _, _, sample_id_list, _, _ = batch
-            prediction = model.predict(input_list, time_list)
+            prediction = model.predict(input_list, time_list, sample_multiplier)
             prediction_list.append(prediction)
             sample_ids.append(sample_id_list)
 

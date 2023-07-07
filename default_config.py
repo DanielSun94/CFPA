@@ -25,9 +25,10 @@ model = 'ODE'
 sparse_constraint_weight = 0.08
 prior_causal_mask = 'hao_true_not_causal'
 non_linear_mode = "True"
+treatment_optimize_method = 'max' # difference min
 
-new_model_number = 5
-treatment_init_model_name = ''
+new_model_number = 1
+treatment_init_model_name = 'predict.CTP.hao_true_lmci.True.none.20230329053718460763.2.400.model'
 treatment_filter_threshold = 1
 assert model in {'ODE'}
 
@@ -88,13 +89,11 @@ default_config = {
     'sparse_constraint_weight': sparse_constraint_weight,
 
     # treatment
-    'treatment_clamp_edge_threshold': 10**-4,
     'treatment_feature': 'n',
     'treatment_time': 52,
     'treatment_observation_time': 57,
     'treatment_value': 0,
-    'oracle_graph_flag': 'True',
-    'sample_multiplier': 1,
+    'treatment_sample_multiplier': 1,
     'treatment_eval_iter_interval': 10,
     "treatment_predict_lr" : 0.01,
     "treatment_treatment_lr" : 0.001,
@@ -103,6 +102,8 @@ default_config = {
     'treatment_new_model_number': new_model_number,
     'treatment_warm_iter': 100,
     'treatment_filter_threshold': treatment_filter_threshold,
+    'treatment_optimize_method': treatment_optimize_method,
+    'treatment_random_observation_time': 'False',
 
     # augmented Lagrangian predict phase
     "init_lambda_predict": 0.0,
@@ -190,8 +191,13 @@ parser.add_argument('--treatment_warm_iter', help='', default=default_config['tr
 parser.add_argument('--treatment_feature', help='', default=default_config['treatment_feature'], type=str)
 parser.add_argument('--treatment_time', help='', default=default_config['treatment_time'], type=float)
 parser.add_argument('--treatment_value', help='', default=default_config['treatment_value'], type=float)
-parser.add_argument('--oracle_graph_flag', help='', default=default_config['oracle_graph_flag'], type=str)
-parser.add_argument('--sample_multiplier', help='', default=default_config['sample_multiplier'], type=int)
+parser.add_argument('--treatment_random_observation_time', help='',
+                    default=default_config['treatment_random_observation_time'], type=str)
+parser.add_argument('--treatment_sample_multiplier', help='', default=default_config['treatment_sample_multiplier'],
+                    type=int)
+parser.add_argument('--treatment_optimize_method', help='',
+                    default=default_config['treatment_optimize_method'], type=str)
+
 parser.add_argument('--treatment_predict_lr', help='', default=default_config['treatment_predict_lr'], type=float)
 parser.add_argument('--treatment_treatment_lr', help='', default=default_config['treatment_treatment_lr'], type=float)
 parser.add_argument('--treatment_observation_time', help='', default=default_config['treatment_observation_time'],

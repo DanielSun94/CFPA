@@ -10,7 +10,7 @@ import random
 
 
 def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatment, max_epoch, max_iteration,
-          eval_iter_interval, observation_time, treatment_warm_iter, argument):
+          eval_iter_interval, observation_time, treatment_warm_iter, random_observation_time, argument):
     iter_idx = 0
     flag = True
     for epoch_idx in range(max_epoch):
@@ -20,7 +20,10 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
             input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
             label_mask_list, label_type_list = batch[6], batch[7]
             # set observation time
-            train_time = random.uniform(model.treatment_time, observation_time)
+            if random_observation_time:
+                train_time = random.uniform(model.treatment_time, observation_time)
+            else:
+                train_time = observation_time
             train_observe_time_list = [FloatTensor([train_time]) for _ in range(len(input_list))]
 
             if flag:
@@ -32,8 +35,12 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
                 optimizer_predict.step()
             else:
                 model.set_mode('treatment')
+                optimize_method = argument['treatment_optimize_method']
                 predict_list = model.predict(input_list, train_observe_time_list)
-                loss = -1 * model.treatment_loss(predict_list)
+                if optimize_method == 'max' or optimize_method == 'difference':
+                    loss = -1 * model.treatment_loss(predict_list)
+                else:
+                    loss = model.treatment_loss(predict_list)
                 optimizer_treatment.zero_grad()
                 loss.backward()
                 optimizer_treatment.step()
@@ -108,6 +115,7 @@ def framework(argument, oracle_graph):
     data_path = argument['data_path']
     reconstruct_input = True if argument['reconstruct_input'] == 'True' else False
     predict_label = True if argument['predict_label'] == 'True' else False
+    random_observation_time = True if argument['treatment_random_observation_time'] else False
     mask_tag = argument['mask_tag']
 
     # data loader setting
@@ -129,6 +137,8 @@ def framework(argument, oracle_graph):
     eval_iter_interval = argument['treatment_eval_iter_interval']
     new_model_number = argument['treatment_new_model_number']
     process_name = argument['process_name']
+    treatment_optimize_method = argument['treatment_optimize_method']
+
     model_args = {
         'init_model_name': argument['treatment_init_model_name'],
         'hidden_flag': argument['hidden_flag'],
@@ -139,13 +149,16 @@ def framework(argument, oracle_graph):
         'bidirectional': argument['init_net_bidirectional'],
         'device': argument['device'],
         'dataset_name': argument['dataset_name'],
-        'time_offset': argument['time_offset']
+        'time_offset': argument['time_offset'],
+        'non_linear_mode': argument['non_linear_mode']
     }
+
 
     dataloader_dict, name_id_dict, _, id_type_list, stat_dict = \
         get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
                         reconstruct_input, predict_label, device=device)
 
+    # 干预经过正态转换
     treatment_value = (treatment_value - stat_dict[treatment_feature][0]) / stat_dict[treatment_feature][1]
     treatment_idx = name_id_dict[treatment_feature]
     train_dataloader = dataloader_dict['train']
@@ -157,7 +170,7 @@ def framework(argument, oracle_graph):
         dataset_name=dataset_name, device=device, treatment_idx=treatment_idx, oracle_graph=oracle_graph,
         batch_size=batch_size, treatment_feature=treatment_feature, new_model_number=new_model_number,
         id_type_list=id_type_list, model_args=model_args, treatment_time=treatment_time,
-        treatment_value=treatment_value, process_name=process_name
+        treatment_value=treatment_value, process_name=process_name, optimize_method=treatment_optimize_method,
     )
 
     para_list_1, para_list_2 = [], []
@@ -168,7 +181,8 @@ def framework(argument, oracle_graph):
     optimizer_predict = Adam(para_list_1, lr=treatment_predict_lr)
     optimizer_treatment = Adam(para_list_2, lr=treatment_treatment_lr)
     train(train_dataloader, validation_dataloader, models, optimizer_predict, optimizer_treatment,
-          max_epoch, max_iter, eval_iter_interval, treatment_observation_time, treatment_warm_iter, argument)
+          max_epoch, max_iter, eval_iter_interval, treatment_observation_time, treatment_warm_iter,
+          random_observation_time, argument)
 
 
 def convert_oracle_graph(oracle_graph, name_id_dict):

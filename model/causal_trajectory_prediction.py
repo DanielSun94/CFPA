@@ -344,7 +344,9 @@ class CausalDerivative(Derivative):
         assert inputs.shape[1] == inputs.shape[2] and len(inputs.shape) == 3
 
         output_feature = []
-        adjacency = unsqueeze(self.adjacency, dim=0).to(self.device)
+        # 因为设计原因，这里需要再转置一次，才是正确的导数计算方法
+        transpose_adjacency = permute(self.adjacency, (1, 0))
+        adjacency = unsqueeze(transpose_adjacency, dim=0).to(self.device)
         inputs = inputs * adjacency
         inputs_list = chunk(inputs, inputs.shape[1], dim=1)
         for i in range(self.input_size):
