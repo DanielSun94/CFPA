@@ -67,14 +67,13 @@ class TreatmentEffectEstimator(Module):
                 model_list[i].load_state_dict(init_model, strict=True)
         return model_list.to(device)
 
-    def predict(self, concat_input_list, label_time_list, sample_multiplier):
+    def predict(self, concat_input_list, label_time_list):
         models = self.models
         predict_value_list = []
         for i, model in enumerate(models):
             if i in self.filter_set:
                 continue
-            model.set_sample_multiplier(sample_multiplier)
-            predict_value = model(concat_input_list, label_time_list, sample_multiplier)
+            predict_value = model(concat_input_list, label_time_list)
             predict_value_list.append(predict_value)
         return predict_value_list
 
@@ -104,6 +103,10 @@ class TreatmentEffectEstimator(Module):
             target_value = predict_value_list[0][:, 0, treatment_idx]
             treatment_loss = target_value.mean()
         return treatment_loss
+
+    def set_sample_multiplier(self, sample_multiplier):
+        assert len(self.models) == 1
+        self.models[0].set_sample_multiplier(sample_multiplier)
 
     def set_mode(self, mode):
         assert mode == 'predict' or mode == 'treatment'

@@ -17,18 +17,20 @@ def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_obser
     for split in 'train', 'valid', 'test':
         dataset_dict[split] = pickle.load(open(data_path, 'rb'))['data'][split]
     oracle_graph = pickle.load(open(data_path, 'rb'))['oracle_graph']
+    name_type_dict = pickle.load(open(data_path, 'rb'))['feature_type_list']
+    stat_dict = pickle.load(open(data_path, 'rb'))['stat_dict']
+
     dataloader_dict = {}
     for split in 'train', 'valid', 'test':
         dataset = SequentialVisitDataset(dataset_dict[split])
         sampler = RandomSampler(dataset)
         dataloader = SequentialVisitDataloader(dataset, batch_size, sampler=sampler, mask=mask_tag,
                                                minimum_observation=minimum_observation, device=device,
-                                               reconstruct_input=reconstruct_input, predict_label=predict_label)
+                                               reconstruct_input=reconstruct_input, predict_label=predict_label,
+                                               stat_dict=stat_dict)
         dataloader_dict[split] = dataloader
     name_id_dict = dataloader_dict['train'].dataset.name_id_dict
 
-    name_type_dict = pickle.load(open(data_path, 'rb'))['feature_type_list']
-    stat_dict = pickle.load(open(data_path, 'rb'))['stat_dict']
     id_type_list = ['' for _ in range(len(name_id_dict))]
     for key in name_type_dict:
         if key not in name_id_dict:

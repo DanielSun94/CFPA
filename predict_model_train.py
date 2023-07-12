@@ -1,5 +1,4 @@
 import numpy as np
-
 from default_config import args, logger, ckpt_folder, adjacency_mat_folder, oracle_graph_dict
 from model.causal_trajectory_prediction import TrajectoryPrediction
 from torch.optim import Adam
@@ -69,7 +68,7 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             optimizer.step()
 
             if iter_idx % eval_iter_interval == 0:
-                predict_performance_evaluation(model, train_dataloader, 'train', epoch_idx, iter_idx)
+                # predict_performance_evaluation(model, train_dataloader, 'train', epoch_idx, iter_idx)
                 predict_performance_evaluation(model, val_loader, 'valid', epoch_idx, iter_idx)
                 model.print_graph(iter_idx, adjacency_mat_folder)
                 if iter_idx % save_interval == 0:

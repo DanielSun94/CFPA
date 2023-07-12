@@ -370,7 +370,18 @@ class HaoModel(object):
         new_train, new_valid, new_test = [], [], []
         for origin, new in zip([train, valid, test], [new_train, new_valid, new_test]):
             for sample in origin:
-                new_sample = {'init': sample['init'], 'para': sample['para'], 'id': sample['id']}
+                new_sample = {'para': sample['para'], 'id': sample['id']}
+                init_dict = dict()
+                for key in sample['init']:
+                    value = sample['init'][key]
+                    assert key != 'visit_time'
+                    assert value >= 0 or value == miss_placeholder
+                    if key == 'tau_o' and self.__use_hidden:
+                        continue
+                    else:
+                        init_dict[key] = (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
+                new_sample['init'] = init_dict
+
                 obs, true = [], []
                 for origin_visit_list, new_visit_list in \
                         zip([sample['observation'], sample['true_value']], [obs, true]):

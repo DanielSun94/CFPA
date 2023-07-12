@@ -2,7 +2,7 @@ import copy
 import numpy as np
 import torch
 from torch import no_grad, FloatTensor, mean
-from default_config import args, logger, ckpt_folder
+from default_config import args, logger, ckpt_folder, oracle_graph_dict
 from util import get_data_loader, save_model
 from model.treatment_effect_evaluation import TreatmentEffectEstimator
 from torch.optim import Adam
@@ -54,7 +54,7 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
 
             if iter_idx % eval_iter_interval == 0:
                 observation_time_list = [FloatTensor([observation_time]) for _ in range(len(input_list))]
-                performance_evaluation(model, train_loader, 'train', observation_time_list, epoch_idx, iter_idx)
+                # performance_evaluation(model, train_loader, 'train', observation_time_list, epoch_idx, iter_idx)
                 performance_evaluation(model, val_loader, 'val', observation_time_list, epoch_idx, iter_idx)
                 save_model(model, 'TEP', ckpt_folder, epoch_idx, iter_idx, argument, 'treatment')
             iter_idx += 1
@@ -170,7 +170,7 @@ def framework(argument, oracle_graph):
         dataset_name=dataset_name, device=device, treatment_idx=treatment_idx, oracle_graph=oracle_graph,
         batch_size=batch_size, treatment_feature=treatment_feature, new_model_number=new_model_number,
         id_type_list=id_type_list, model_args=model_args, treatment_time=treatment_time,
-        treatment_value=treatment_value, process_name=process_name, optimize_method=treatment_optimize_method,
+        treatment_value=treatment_value, process_name=process_name, optimize_method=treatment_optimize_method
     )
 
     para_list_1, para_list_2 = [], []
@@ -202,21 +202,9 @@ def convert_oracle_graph(oracle_graph, name_id_dict):
 
 def read_oracle_graph(dataset_name, hidden_flag, constraint):
     if dataset_name == 'hao_true_lmci' and hidden_flag and constraint == 'DAG':
-        return {
-            'a': {'a': 1, 'tau_p': 1, 'n': 0, 'c': 0, 'hidden': 0},
-            'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
-            'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
-            'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'hidden': 0},
-            'hidden': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 1},
-        }
+        return oracle_graph_dict['hao_true_causal']
     elif dataset_name == 'hao_true_lmci' and hidden_flag and (constraint == 'none' or constraint == 'sparse'):
-        return {
-            'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-            'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-            'n': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-            'c': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-            'hidden': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-        }
+        return oracle_graph_dict['hao_true_not_causal']
     else:
         raise ValueError('')
 

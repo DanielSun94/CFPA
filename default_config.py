@@ -25,10 +25,10 @@ model = 'ODE'
 sparse_constraint_weight = 0.08
 prior_causal_mask = 'hao_true_not_causal'
 non_linear_mode = "True"
-treatment_optimize_method = 'max' # difference min
+treatment_optimize_method = 'difference' # difference min
 
 new_model_number = 1
-treatment_init_model_name = 'predict.CTP.hao_true_lmci.True.none.20230329053718460763.2.400.model'
+treatment_init_model_name = ''
 treatment_filter_threshold = 1
 assert model in {'ODE'}
 
@@ -65,7 +65,7 @@ default_config = {
     'hidden_flag': hidden_flag,
 
     # model config
-    "hidden_size": 4,
+    "hidden_size": 8,
     'init_pooling': 'mean',
     'init_net_bidirectional': "True",
     'non_linear_mode': non_linear_mode,
@@ -76,7 +76,7 @@ default_config = {
     "batch_size": 128,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
-    "learning_rate": 0.01,
+    "learning_rate": 0.005,
     "eval_iter_interval": 20,
     "eval_epoch_interval": -1,
     "device": device,
@@ -93,9 +93,9 @@ default_config = {
     'treatment_time': 52,
     'treatment_observation_time': 57,
     'treatment_value': 0,
-    'treatment_sample_multiplier': 1,
+    'treatment_sample_multiplier': 8,
     'treatment_eval_iter_interval': 10,
-    "treatment_predict_lr" : 0.01,
+    "treatment_predict_lr" : 0.001,
     "treatment_treatment_lr" : 0.001,
     "treatment_max_epoch" : 10000,
     "treatment_max_iter" : 2000,
@@ -260,10 +260,10 @@ for item in config_list:
 # other config
 oracle_graph_dict ={
     'hao_true_causal': {
-        'a': {'a': 1, 'tau_p': 1, 'n': 0, 'c': 0, 'hidden': 0},
-        'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
+        'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 0, 'hidden': 0},
+        'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
         'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
-        'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'hidden': 0},
+        'c': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
         'hidden': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 1},
     },
     'hao_true_not_causal': {

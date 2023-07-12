@@ -120,7 +120,14 @@ class SequentialVisitDataset(Dataset):
         for sample in data:
             single_obs_sequence_data, single_sequence_time, single_true_sequence_data = [], [], []
             observation_sequence, true_sequence, sample_id = sample['observation'], sample['true_value'], sample['id']
-            init, para = sample['init'], sample['para']
+            origin_init, para = sample['init'], sample['para']
+            init = [0] * len(origin_init)
+            assert 'visit_time' not in origin_init
+            for key in origin_init:
+                value = origin_init[key]
+                idx = self.name_id_dict[key]
+                init[idx] = value
+
             observation_sequence = sorted(observation_sequence, key=lambda x: x['visit_time'], reverse=False)
             true_sequence = sorted(true_sequence, key=lambda x: x['visit_time'], reverse=False)
             for single_obs_visit in observation_sequence:
@@ -175,13 +182,14 @@ class SingleVisitDataloader(DataLoader):
 
 class SequentialVisitDataloader(DataLoader):
     def __init__(self, dataset, batch_size, sampler, minimum_observation, mask, reconstruct_input, predict_label,
-                 device):
+                 device, stat_dict):
         assert batch_size > 1
         self.mask = mask
         self.reconstruct_input = reconstruct_input
         self.predict_label = predict_label
         self.minimum_observation = minimum_observation
         self.device = device
+        self.stat_dict = stat_dict
         super().__init__(dataset, batch_size=batch_size, sampler=sampler, collate_fn=self.collate_fn)
 
     def reorganize_batch_data(self, data):
@@ -231,7 +239,8 @@ class SequentialVisitDataloader(DataLoader):
         for item in data:
             pred_time, pred_feature, avail_time, avail_feature, sample_id, init, para = item
             sample_id_list.append(sample_id)
-            input_init_list.append(init)
+            # 如果要在初始值用init，要额外补一个hidden dimension（当hidden 为True时）
+            input_init_list.append(init + [1])
             input_para_list.append(para)
 
             input_feature_mask = np.array(avail_feature) == missing_flag_num
@@ -296,6 +305,7 @@ class SequentialVisitDataloader(DataLoader):
         label_time_list = [item.to(self.device) for item in label_time_list]
         label_mask_list = [item.to(self.device) for item in label_mask_list]
         type_list = [item.to(self.device) for item in type_list]
+        input_init_list = FloatTensor(np.array(input_init_list)).to(self.device)
         return concat_input, input_feature_list, input_time_list, input_mask_list, label_feature_list,\
             label_time_list, label_mask_list, type_list, input_len_list, label_len_list, sample_id_list, \
             input_init_list, input_para_list

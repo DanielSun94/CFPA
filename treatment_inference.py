@@ -29,8 +29,8 @@ def main(argument):
     constraint = argument['constraint_type']
 
     inference_model_name_dict = {
-        'model_1': 'treatment.TEP.hao_true_lmci.True.20230326072007150451.0.0.model',
-        'model_2': 'treatment.TEP.hao_true_lmci.True.20230326072007150451.0.0.model'
+        'model_1': 'treatment.TEP.hao_true_lmci.True.20230401073543695250.0.30.model',
+        'model_2': 'treatment.TEP.hao_true_lmci.True.20230401073543695250.0.0.model'
     }
 
     oracle_graph = read_oracle_graph(dataset_name, hidden_flag, constraint)
@@ -128,7 +128,8 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
         'bidirectional': argument['init_net_bidirectional'],
         'device': argument['device'],
         'dataset_name': argument['dataset_name'],
-        'time_offset': argument['time_offset']
+        'time_offset': argument['time_offset'],
+        'non_linear_mode': argument['non_linear_mode']
     }
 
     model = TreatmentEffectEstimator(
@@ -162,11 +163,13 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
 
     time_list = [torch.FloatTensor(time_list).to(device) for _ in range(batch_size)]
     prediction_list, sample_ids = [], []
+    model.set_sample_multiplier(sample_multiplier)
     with torch.no_grad():
         for batch in dataloader:
             input_list, _, _, _, _, _, _, _, _, _, sample_id_list, _, _ = batch
-            prediction = model.predict(input_list, time_list, sample_multiplier)
-            prediction_list.append(prediction)
+            prediction = model.predict(input_list, time_list)
+            prediction_list.append(torch.reshape(prediction, (sample_multiplier, -1,
+                                                              prediction.shape[1], prediction.shape[2])))
             sample_ids.append(sample_id_list)
 
     reorganized_prediction_list, reorganized_sample_list = [], []

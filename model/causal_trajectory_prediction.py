@@ -82,17 +82,18 @@ class TrajectoryPrediction(Module):
     def set_sample_multiplier(self, num):
         self.sample_multiplier = num
 
-    def forward(self, concat_input_list, label_time_list):
+    def forward(self, concat_input_list, label_time_list, init_value=None):
         # data format [batch_size, visit_idx, feature_idx]
         batch_size = len(concat_input_list)
 
         # estimate the init value
-        init = self.predict_init_value(concat_input_list)
-        init_value, init_std = init[:, :, 0], init[:, :, 1]
-        std = randn([self.sample_multiplier, init_value.shape[0], init_value.shape[1]]).to(self.device)
-        init_value, init_std = unsqueeze(init_value, dim=0), unsqueeze(init_std, dim=0)
-        init_value = init_value + std * init_std
-        init_value = init_value.reshape([batch_size * self.sample_multiplier, self.derivative_dim])
+        if init_value is None:
+            init = self.predict_init_value(concat_input_list)
+            init_value, init_std = init[:, :, 0], init[:, :, 1]
+            std = randn([self.sample_multiplier, init_value.shape[0], init_value.shape[1]]).to(self.device)
+            init_value, init_std = unsqueeze(init_value, dim=0), unsqueeze(init_std, dim=0)
+            init_value = init_value + std * init_std
+            init_value = init_value.reshape([batch_size * self.sample_multiplier, self.derivative_dim])
 
         if self.data_mode == 'random':
             predict_value_list = []
@@ -146,7 +147,9 @@ class TrajectoryPrediction(Module):
             reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
             reconstruct_loss = reconstruct_loss.sum() / reconstruct_valid_ele_num
             predict_loss = predict_loss.sum() / predict_valid_ele_num
-            loss = (reconstruct_loss + predict_loss) / 2
+
+            adapt_ratio = reconstruct_loss.detach() / predict_loss.detach()
+            loss = adapt_ratio * reconstruct_loss + predict_loss
             output_dict = {
                 'predict_value_list': prediction_list,
                 'label_type_list': type_list,
@@ -273,7 +276,9 @@ class CausalDerivative(Derivative):
                 self.net_list.append(
                     Sequential(
                         Linear(self.input_size, hidden_size, bias=False),
-                        ReLU(),
+                        # ReLU(),
+                        Linear(hidden_size, hidden_size, bias=False),
+                        # ReLU(),
                         Linear(hidden_size, 1, bias=False),
                     )
                 )
