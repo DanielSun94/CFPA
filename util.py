@@ -63,7 +63,7 @@ def save_graph(model, model_name, folder, epoch_idx, iter_idx, argument):
             line_content.append(item)
         write_content.append(line_content)
 
-    file_name = '{}.{}.{}.{}.{}.{}.{}.{}'. \
+    file_name = '{}.{}.{}.{}.{}.{}.{}.{}.csv'. \
             format('predict', model_name, dataset_name, hidden_flag, constraint_type, process_name, epoch_idx, iter_idx)
     write_path = os.path.join(folder, file_name)
     with open(write_path, 'w', encoding='utf-8-sig', newline='') as f:

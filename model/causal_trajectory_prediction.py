@@ -82,18 +82,17 @@ class TrajectoryPrediction(Module):
     def set_sample_multiplier(self, num):
         self.sample_multiplier = num
 
-    def forward(self, concat_input_list, label_time_list, init_value=None):
+    def forward(self, concat_input_list, label_time_list):
         # data format [batch_size, visit_idx, feature_idx]
         batch_size = len(concat_input_list)
 
         # estimate the init value
-        if init_value is None:
-            init = self.predict_init_value(concat_input_list)
-            init_value, init_std = init[:, :, 0], init[:, :, 1]
-            std = randn([self.sample_multiplier, init_value.shape[0], init_value.shape[1]]).to(self.device)
-            init_value, init_std = unsqueeze(init_value, dim=0), unsqueeze(init_std, dim=0)
-            init_value = init_value + std * init_std
-            init_value = init_value.reshape([batch_size * self.sample_multiplier, self.derivative_dim])
+        init = self.predict_init_value(concat_input_list)
+        init_value, init_std = init[:, :, 0], init[:, :, 1]
+        std = randn([self.sample_multiplier, init_value.shape[0], init_value.shape[1]]).to(self.device)
+        init_value, init_std = unsqueeze(init_value, dim=0), unsqueeze(init_std, dim=0)
+        init_value = init_value + std * init_std
+        init_value = init_value.reshape([batch_size * self.sample_multiplier, self.derivative_dim])
 
         if self.data_mode == 'random':
             predict_value_list = []

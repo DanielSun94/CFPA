@@ -15,10 +15,17 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
     flag = True
     for epoch_idx in range(max_epoch):
         for batch in train_loader:
-            if iter_idx > max_iteration:
-                break
             input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
             label_mask_list, label_type_list = batch[6], batch[7]
+            if iter_idx > max_iteration:
+                break
+
+            if iter_idx % eval_iter_interval == 0:
+                observation_time_list = [FloatTensor([observation_time]) for _ in range(len(input_list))]
+                # performance_evaluation(model, train_loader, 'train', observation_time_list, epoch_idx, iter_idx)
+                performance_evaluation(model, val_loader, 'val', observation_time_list, epoch_idx, iter_idx)
+                save_model(model, 'TEP', ckpt_folder, epoch_idx, iter_idx, argument, 'treatment')
+
             # set observation time
             if random_observation_time:
                 train_time = random.uniform(model.treatment_time, observation_time)
@@ -51,12 +58,6 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
 
             if treatment_warm_iter < iter_idx:
                 flag = not flag
-
-            if iter_idx % eval_iter_interval == 0:
-                observation_time_list = [FloatTensor([observation_time]) for _ in range(len(input_list))]
-                # performance_evaluation(model, train_loader, 'train', observation_time_list, epoch_idx, iter_idx)
-                performance_evaluation(model, val_loader, 'val', observation_time_list, epoch_idx, iter_idx)
-                save_model(model, 'TEP', ckpt_folder, epoch_idx, iter_idx, argument, 'treatment')
             iter_idx += 1
     logger.info('optimization finished')
     return model
@@ -125,7 +126,7 @@ def framework(argument, oracle_graph):
     batch_size = argument['batch_size']
     device = argument['device']
 
-    treatment_warm_iter = argument['treatment_predict_lr']
+    treatment_warm_iter = argument['treatment_warm_iter']
     treatment_predict_lr = argument['treatment_predict_lr']
     treatment_treatment_lr = argument['treatment_treatment_lr']
     treatment_feature = argument['treatment_feature']
@@ -200,10 +201,10 @@ def convert_oracle_graph(oracle_graph, name_id_dict):
     return converted_graph
 
 
-def read_oracle_graph(dataset_name, hidden_flag, constraint):
-    if dataset_name == 'hao_true_lmci' and hidden_flag and constraint == 'DAG':
+def read_oracle_graph(dataset_name, true_casual):
+    if dataset_name == 'hao_true_lmci' and true_casual:
         return oracle_graph_dict['hao_true_causal']
-    elif dataset_name == 'hao_true_lmci' and hidden_flag and (constraint == 'none' or constraint == 'sparse'):
+    elif dataset_name == 'hao_true_lmci' and not true_casual:
         return oracle_graph_dict['hao_true_not_causal']
     else:
         raise ValueError('')
@@ -211,9 +212,8 @@ def read_oracle_graph(dataset_name, hidden_flag, constraint):
 
 def main():
     dataset_name = args['dataset_name']
-    hidden_flag = True if args['hidden_flag'] == "True" else False
-    constraint = args['constraint_type']
-    oracle_graph = read_oracle_graph(dataset_name, hidden_flag, constraint)
+    true_causal = True if args['treatment_true_causal'] == "True" else False
+    oracle_graph = read_oracle_graph(dataset_name, true_causal)
     framework(args, oracle_graph)
 
 

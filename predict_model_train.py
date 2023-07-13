@@ -73,7 +73,7 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
                 model.print_graph(iter_idx, adjacency_mat_folder)
                 if iter_idx % save_interval == 0:
                     save_model(model, 'CTP', ckpt_folder, epoch_idx, iter_idx, argument, 'predict')
-                    save_graph(model, 'CTP', adjacency_mat_folder, epoch_idx, iter_idx, argument)
+                    # save_graph(model, 'CTP', adjacency_mat_folder, epoch_idx, iter_idx, argument)
     return model
 
 

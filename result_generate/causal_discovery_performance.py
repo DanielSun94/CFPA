@@ -7,23 +7,57 @@ from predict_model_train import get_data
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+# Linear ODE
+# 'predict.CTP.hao_true_lmci.True.sparse.20230402160017666256.18.3000.model',
+# 'predict.CTP.hao_true_lmci.True.sparse.20230402160017675829.18.3000.model'
+# NODE
+# "predict.CTP.hao_true_lmci.True.none.20230402160017638219.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.none.20230402160017622164.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.none.20230402160017593823.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.none.20230402160017632388.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.none.20230402160017551015.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.none.20230402160017549878.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.none.20230402160017516543.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.none.20230402160017555945.18.3000.model"
+# NODE Sparse (NGM)
+# "predict.CTP.hao_true_lmci.True.sparse.20230402160017628116.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.sparse.20230402160017566475.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.sparse.20230402160017665773.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.sparse.20230402160017561905.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.sparse.20230402160017676152.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.sparse.20230402160017635273.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.sparse.20230402160017673871.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.sparse.20230402160017576411.18.3000.model"
+#
+# CTP
+# "predict.CTP.hao_true_lmci.True.DAG.20230402160017432987.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.DAG.20230402160017285169.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.DAG.20230402160017293297.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.DAG.20230402160017319134.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.DAG.20230402160017400674.18.3000.model",
+# "predict.CTP.hao_true_lmci.True.DAG.20230402160017286170.18.3000.model",
+#
 
 def main(argument):
-    threshold = 0.001
+    threshold = 0.005
     dataset = argument['dataset_name']
     model_type = 'CTP'
     device = argument['device']
-    prior_causal_mask_name = 'hao_true_causal'
+    causal_mask_name = 'hao_true_causal'
+    argument['non_linear_mode'] = "True"
     model_name_list = [
-        'predict.CTP.hao_true_lmci.True.DAG.20230327064317308620.4.800.model',
-        'predict.CTP.hao_true_lmci.True.DAG.20230327064317309236.6.1100.model',
-        'predict.CTP.hao_true_lmci.True.DAG.20230327064317576854.3.600.model'
+        "predict.CTP.hao_true_lmci.True.DAG.20230402160017432987.18.3000.model",
+        "predict.CTP.hao_true_lmci.True.DAG.20230402160017285169.18.3000.model",
+        "predict.CTP.hao_true_lmci.True.DAG.20230402160017293297.18.3000.model",
+        "predict.CTP.hao_true_lmci.True.DAG.20230402160017319134.18.3000.model",
+        "predict.CTP.hao_true_lmci.True.DAG.20230402160017400674.18.3000.model",
+        "predict.CTP.hao_true_lmci.True.DAG.20230402160017286170.18.3000.model",
     ]
 
     mat_list = []
     if model_type == 'CTP':
         dataloader_dict, name_id_dict, _, id_type_list = get_data(argument)
-        label = get_oracle_causal_graph(prior_causal_mask_name, name_id_dict)
+        label = get_oracle_causal_graph(causal_mask_name, name_id_dict)
         for item in model_name_list:
             model_path = os.path.join(ckpt_folder, item)
             state_dict = torch.load(model_path)
@@ -40,36 +74,7 @@ def main(argument):
     for name, metric in zip(['acc', 'f1', 'c_index'], [acc_l, f1l, c_index_l]):
         mean = np.mean(metric)
         std = np.std(metric)
-        print('{}, {}, {}, {}'.format(model_type, dataset, mean, std))
-
-
-    # heat map
-    heat_map_list = []
-    min_num, max_num = 10, -1
-    for item in mat_list:
-        heat_map_list.append(item[0])
-        if np.min(item[0]) < min_num:
-            min_num = np.min(item[0])
-        if np.max(item[0]) > max_num:
-            max_num = np.max(item[0])
-    normalized_list = []
-    for item in heat_map_list:
-        normalized_list.append((item-min_num) / (max_num-min_num))
-    normalized_list.insert(0, mat_list[0][1])
-
-    fig, axn = plt.subplots(1, len(normalized_list), sharex=True, sharey=True)
-    cbar_ax = fig.add_axes([.91, .3, .03, .4])
-
-    for i in range(len(normalized_list)):
-        sns.heatmap(normalized_list[i], ax=axn[i],
-                    cbar=i == 0,
-                    vmin=0, vmax=1,
-                    xticklabels=[],
-                    yticklabels=[],
-                    cbar_ax=None if i else cbar_ax)
-
-    fig.tight_layout(rect=[0, 0, .9, 1])
-    plt.show()
+        print('{}, {}, {}, {}, {}'.format(model_type, dataset, name, mean, std))
 
 
 def calculate_performance(mat_list, threshold):

@@ -72,7 +72,7 @@ class TreatmentEffectEstimator(Module):
         predict_value_list = []
         for i, model in enumerate(models):
             if i in self.filter_set:
-                continue
+                predict_value_list.append([])
             predict_value = model(concat_input_list, label_time_list)
             predict_value_list.append(predict_value)
         return predict_value_list
@@ -80,6 +80,7 @@ class TreatmentEffectEstimator(Module):
     def predict_loss(self, predict_value_list, label_feature_list, label_mask_list, label_type_list):
         models = self.models
         loss = 0
+        assert len(models) == len(predict_value_list)
         for i, (model, predict_value) in enumerate(zip(models, predict_value_list)):
             if i in self.filter_set:
                 continue
@@ -105,7 +106,7 @@ class TreatmentEffectEstimator(Module):
         return treatment_loss
 
     def set_sample_multiplier(self, sample_multiplier):
-        assert len(self.models) == 1
+        assert len(self.models) == 1 or sample_multiplier == 1
         self.models[0].set_sample_multiplier(sample_multiplier)
 
     def set_mode(self, mode):

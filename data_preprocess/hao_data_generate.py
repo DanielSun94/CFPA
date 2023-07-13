@@ -13,7 +13,7 @@ def main():
     default_config_path = os.path.abspath('../resource/hao_model_config.yaml')
     default_use_hidden = "True"
     default_group = 'lmci'
-    default_sample_type = 'random'
+    default_sample_type = 'uniform'
     default_train_sample_size = 20480
     default_valid_sample_size = 512
     default_test_sample_size = 512
@@ -376,10 +376,10 @@ class HaoModel(object):
                     value = sample['init'][key]
                     assert key != 'visit_time'
                     assert value >= 0 or value == miss_placeholder
-                    if key == 'tau_o' and self.__use_hidden:
-                        continue
-                    else:
-                        init_dict[key] = (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
+                    init_dict[key] = {
+                        'origin': value,
+                        'transformed': (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
+                    }
                 new_sample['init'] = init_dict
 
                 obs, true = [], []

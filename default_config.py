@@ -10,6 +10,7 @@ sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__f
 t = datetime.datetime.now()
 time = ".".join([str(t.year), str(t.month), str(t.day), str(t.hour), str(t.minute), str(t.second)])
 script_path = os.path.split(os.path.realpath(__file__))[0]
+resource_folder = os.path.join(script_path, 'resource')
 sim_data_folder = os.path.join(script_path, 'resource', 'simulated_data')
 adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_folder')
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
@@ -19,17 +20,17 @@ fig_save_folder = os.path.join(script_path, 'resource', 'figure')
 dataset = 'hao_true_lmci'
 hidden_flag = 'True'
 distribution_mode = 'uniform'
-device = 'cuda:1'
-constraint_type = 'DAG'
+device = 'cuda:5'
+constraint_type = 'none'
 model = 'ODE'
 sparse_constraint_weight = 0.08
-prior_causal_mask = 'hao_true_not_causal'
+prior_causal_mask = 'hao_true_causal'
 non_linear_mode = "True"
 treatment_optimize_method = 'difference' # difference min
 
-new_model_number = 1
-treatment_init_model_name = ''
-treatment_filter_threshold = 1
+new_model_number = 8
+treatment_init_model_name = 'predict.CTP.hao_true_lmci.True.none.20230404121230308383.9.1500.model'
+treatment_filter_threshold = 0.04
 assert model in {'ODE'}
 
 if not os.path.exists(sim_data_folder):
@@ -93,17 +94,18 @@ default_config = {
     'treatment_time': 52,
     'treatment_observation_time': 57,
     'treatment_value': 0,
-    'treatment_sample_multiplier': 8,
-    'treatment_eval_iter_interval': 10,
-    "treatment_predict_lr" : 0.001,
-    "treatment_treatment_lr" : 0.001,
-    "treatment_max_epoch" : 10000,
+    'treatment_sample_multiplier': 1,
+    'treatment_eval_iter_interval': 20,
+    "treatment_predict_lr" : 0.0001,
+    "treatment_treatment_lr" : 0.000003,
+    "treatment_max_epoch" : 200,
     "treatment_max_iter" : 2000,
     'treatment_new_model_number': new_model_number,
-    'treatment_warm_iter': 100,
+    'treatment_warm_iter': 200,
     'treatment_filter_threshold': treatment_filter_threshold,
     'treatment_optimize_method': treatment_optimize_method,
     'treatment_random_observation_time': 'False',
+    'treatment_true_causal': 'True',
 
     # augmented Lagrangian predict phase
     "init_lambda_predict": 0.0,
@@ -210,6 +212,9 @@ parser.add_argument('--treatment_new_model_number', help='', default=default_con
                     type=int)
 parser.add_argument('--treatment_filter_threshold', help='', default=default_config['treatment_filter_threshold'],
                     type=float)
+parser.add_argument('--treatment_true_causal', help='', default=default_config['treatment_true_causal'],
+                    type=str)
+
 
 args = vars(parser.parse_args())
 
@@ -263,7 +268,7 @@ oracle_graph_dict ={
         'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 0, 'hidden': 0},
         'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
         'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
-        'c': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
+        'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'hidden': 0},
         'hidden': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 1},
     },
     'hao_true_not_causal': {
