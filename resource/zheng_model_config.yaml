@@ -1,0 +1,47 @@
+sample_characteristic:
+  random_max_visit: 10
+  random_min_visit: 5
+  random_max_interval: 2
+  random_min_interval: 1
+  uniform_visit: 15
+  uniform_interval: 2
+  t_0: -10
+  unit: "DPS"
+  distribution: "uniform"
+  gaussian_observation_noise_std_coefficient: 0
+  gaussian_derivative_noise_std_coefficient: 0
+  personalized_turbulence_coefficient: 0.1
+lmci-ad:
+  base_initial_value:
+    a: 0.000141
+    tau: 0
+    n: 0
+    c: 0
+  parameters:
+    w_a_0: 0
+    w_a_1: 0.745
+    w_a_2: -0.749
+    w_t_0: 0
+    w_t_1: 0.689
+    w_t_2: -0.679
+    w_t_3: 0.000
+    w_t_4: 0.185
+    w_t_5: -0.101
+    w_n_0: 0
+    w_n_1: 0.899
+    w_n_2: -0.927
+    w_n_3: 0.554
+    w_n_4: 1.792
+    w_n_5: -2.127
+    w_c_0: 0
+    w_c_1: 0.134
+    w_c_2: -0.067
+    w_c_3: 0.004
+    w_c_4: 0.007
+    w_c_5: -0.008
+missing_rate:
+  a: 0.05
+  tau: 0.05
+  n: 0.05
+  c: 0.05
+

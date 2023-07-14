@@ -3,8 +3,7 @@ from default_config import args, logger, ckpt_folder, adjacency_mat_folder, orac
 from model.causal_trajectory_prediction import TrajectoryPrediction
 from torch.optim import Adam
 from torch import FloatTensor
-from util import get_data_loader, save_model, save_graph, LagrangianMultiplierStateUpdater, \
-    predict_performance_evaluation
+from util import get_data_loader, save_model, LagrangianMultiplierStateUpdater, predict_performance_evaluation
 
 
 def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, argument):

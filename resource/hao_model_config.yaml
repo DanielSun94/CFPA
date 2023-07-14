@@ -1,13 +1,14 @@
 sample_characteristic:
+  group: 'lmci'
   random_max_visit: 10
   random_min_visit: 5
   random_max_interval: 2
   random_min_interval: 1
   uniform_visit: 15
   uniform_interval: 1
+  distribution: "uniform"
   t_0: 50
   unit: "year"
-  distribution: "uniform"
   gaussian_observation_noise_std_coefficient: 0
   gaussian_derivative_noise_std_coefficient: 0
   personalized_turbulence_coefficient_1: 0.2

@@ -219,13 +219,13 @@ parser.add_argument('--treatment_true_causal', help='', default=default_config['
 args = vars(parser.parse_args())
 
 if args["dataset_name"] == 'hao_true_lmci':
-    args["data_path"] = os.path.join(sim_data_folder, 'sim_hao_model_hidden_True_group_lmci_personal_2_type_{}.pkl'
+    args["data_path"] = os.path.join(sim_data_folder, 'sim_hao_model_hidden_True_personal_2_type_{}.pkl'
                                      .format(distribution_mode))
     args["time_offset"] = 50
     args["minimum_observation"] = 4
     args["input_size"] = 4
 elif args["dataset_name"] == 'hao_false_lmci':
-    args["data_path"] = os.path.join(sim_data_folder, 'sim_hao_model_hidden_False_group_lmci_personal_2_type_{}.pkl'
+    args["data_path"] = os.path.join(sim_data_folder, 'sim_hao_model_hidden_False_personal_2_type_{}.pkl'
                                      .format(distribution_mode))
     args["time_offset"] = 50
     args["minimum_observation"] = 4
