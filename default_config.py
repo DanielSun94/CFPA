@@ -17,8 +17,8 @@ ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
 fig_save_folder = os.path.join(script_path, 'resource', 'figure')
 
-dataset = 'zheng' # 'zheng
-hidden_flag = 'False' # False
+dataset = 'auto50' # 'zheng
+hidden_flag = 'True' # False
 distribution_mode = 'uniform'
 device = 'cuda:1'
 constraint_type = 'DAG'
@@ -37,21 +37,21 @@ treatment_filter_threshold = 0.04
 # treatment_value = 0
 
 # zheng
-treatment_feature = 'n'
-treatment_time = 0
-treatment_observation_time = 10
-treatment_value = 0
+# treatment_feature = 'n'
+# treatment_time = 0
+# treatment_observation_time = 10
+# treatment_value = 0
 
 # auto
-# treatment_feature = 'node_15'
-# treatment_time = 1
-# treatment_observation_time = 3
-# treatment_value = 1
+treatment_feature = 'node_15'
+treatment_time = 1
+treatment_observation_time = 3
+treatment_value = 1
 assert model in {'ODE'}
 
 # treatment_init_model_name = 'predict.CTP.hao_true_lmci.True.none.20230404121230308383.18.2900.model'
 # treatment_init_model_name = 'predict.CTP.zheng.False.DAG.20230406082853239080.8.100.model'
-treatment_init_model_name = 'predict.CTP.auto50.True.DAG.20230406085818294806.49.100.model'
+treatment_init_model_name = 'predict.CTP.auto50.True.DAG.20230406104408175186.99.100.model'
 
 
 if not os.path.exists(sim_data_folder):

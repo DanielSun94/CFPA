@@ -3,17 +3,34 @@ from util import read_treatment_data
 
 
 def main():
-    data_name = 'hao_true_lmci,True,n,52,0.csv'
-    hidden = True
-    treat_time = 52
-    middle_time = 54
-    end_time = 56
-    data_set = data_name.split(',')[0]
-
-    if hidden:
-        feature_list = ['a', 'tau_p', 'n', 'c']
+    # data_name = 'zheng,False,n,0,0.csv'
+    data_name = 'auto50,True,node_15,1,1.csv'
+    if 'hao' in data_name:
+        hidden = True
+        treat_time = 52
+        middle_time = 54
+        end_time = 56
+        if hidden:
+            feature_list = ['a', 'tau_p', 'n', 'c']
+        else:
+            feature_list = ['a', 'tau_p', 'tau_o', 'n', 'c']
+    elif 'zheng' in data_name:
+        treat_time = 0
+        middle_time = 10
+        end_time = 20
+        feature_list = ['a', 'tau', 'n', 'c']
+    elif 'auto25' in data_name:
+        treat_time = 1
+        end_time = 2
+        middle_time = 1.5
+        feature_list = ['node_{}'.format(i) for i in range(5, 25)]
+    elif 'auto50' in data_name:
+        middle_time = 1.5
+        treat_time = 1
+        end_time = 2
+        feature_list = ['node_{}'.format(i) for i in range(5, 50)]
     else:
-        feature_list = ['a', 'tau_p', 'tau_o', 'n', 'c']
+        raise ValueError('')
 
     data, time = read_treatment_data(data_name, feature_list)
     reorganized_data = reorganize(data)

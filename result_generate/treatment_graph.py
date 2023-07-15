@@ -66,7 +66,8 @@ def main():
     #         model_name_list.append(key)
     # model_name_list = [key for key in plot_data]
     # model_name_list = ['NGM_treatment', 'oracle_treatment', 'NODE_treatment', 'CTP_treatment', 'LinearODE_treatment' ]
-    model_name_list = ['oracle', 'CTP', 'NGM', 'NODE', 'LinearODE', 'CF-ODE']
+    # model_name_list = ['oracle', 'CTP', 'NGM', 'NODE', 'LinearODE', 'CF-ODE']
+    model_name_list = ['oracle', 'CTP']
     sorted(model_name_list)
     # model_name_list = ['oracle_treatment', 'model_2_treatment']
     print('order of model names: {}'.format(model_name_list))

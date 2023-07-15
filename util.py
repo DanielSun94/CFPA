@@ -356,6 +356,7 @@ class OracleZhengModel(object):
         self.time_offset = time_offset
         self.treatment_time = None
         self.stat_dict = stat_dict
+        assert hidden_type == 'False' or hidden_type == False
         self.name_id_dict = {'a': 0, 'tau': 1, 'n': 2, 'c': 3}
 
     def set_treatment(self, treatment_feature, treatment_time, treatment_value):
@@ -435,17 +436,23 @@ class OracleZhengModel(object):
 
 
 class OracleAutoModel(object):
-    def __init__(self, hidden_type, init_dict, time_offset, stat_dict, node_num, oracle_graph):
+    def __init__(self, hidden_type, init_dict, time_offset, stat_dict, node_num):
         self.hidden_type = hidden_type
         self.treatment_feature = None
         self.treatment_value = None
         self.node_num = node_num
-        self.oracle_graph = oracle_graph
         self.init_dict = init_dict
         self.time_offset = time_offset
         self.treatment_time = None
         self.stat_dict = stat_dict
-        self.name_id_dict = {'a': 0, 'tau': 1, 'n': 2, 'c': 3}
+        self.name_id_dict = {'node_{}'.format(i): i for i in range(node_num)}
+        self.oracle_graph = self.get_oracle()
+        assert hidden_type == 'True' or hidden_type == True
+
+    def get_oracle(self):
+        oracle_graph = pickle.load(open(os.path.abspath('./resource/simulated_data/auto_{}_graph.pkl'.
+                                                        format(self.node_num)), 'rb'))
+        return oracle_graph
 
     def set_treatment(self, treatment_feature, treatment_time, treatment_value):
         if not (treatment_feature is None and treatment_value is None and treatment_feature is None):
@@ -459,12 +466,30 @@ class OracleAutoModel(object):
                (self.treatment_time is not None and self.treatment_value is not None and self.treatment_feature
                 is not None)
 
+        if self.treatment_time is not None and t > self.treatment_time:
+            idx = self.name_id_dict[self.treatment_feature]
+            y[idx] = self.treatment_value
 
-        return derivative
+        derivative_list = np.zeros([self.node_num])
+        for i in range(self.node_num):
+            derivative = -1 * y[i]
+            count = 0
+            d_part_2 = 0
+            for j in range(i):
+                if self.oracle_graph[j, i] == 1:
+                    d_part_2 += y[j] / (1 + y[j])
+                    count += 1
+            if count > 0:
+                derivative += d_part_2 / count
+            derivative_list[i] = derivative
+
+        if self.treatment_time is not None and t > self.treatment_time:
+            derivative_list[self.name_id_dict[self.treatment_feature]] = 0
+        return derivative_list
 
     def inference(self, time_list):
         init = self.init_dict
-        initial_state = [init['a'], init['tau'], init['n'], init['c']]
+        initial_state = [init['node_{}'.format(i)] for i in range(self.node_num)]
 
         time_list = [item - self.time_offset for item in time_list]
         result_list = []
@@ -478,13 +503,9 @@ class OracleAutoModel(object):
         return ordered_list
 
     def reorganize(self, result_list):
-        a_list = [(item[0]-self.stat_dict['a'][0])/self.stat_dict['a'][1] for item in result_list]
-        tau_list = [(item[1]-self.stat_dict['tau'][0])/self.stat_dict['tau'][1] for item in result_list]
-        n_list = [(item[3]-self.stat_dict['n'][0])/self.stat_dict['n'][1] for item in result_list]
-        c_list = [(item[4]-self.stat_dict['c'][0])/self.stat_dict['c'][1] for item in result_list]
-        return {
-            'a': np.array(a_list),
-            'c': np.array(c_list),
-            'n': np.array(n_list),
-            'tau': np.array(tau_list)
-        }
+        data_dict = {}
+        for i in range(5, self.node_num):
+            name = 'node_{}'.format(i)
+            value_list = [(item[0]-self.stat_dict[name][0])/self.stat_dict[name][1] for item in result_list]
+            data_dict[name] = np.array(value_list)
+        return data_dict

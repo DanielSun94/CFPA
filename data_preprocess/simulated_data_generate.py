@@ -20,15 +20,15 @@ config_path_set = {
 
 
 def main():
-    model_name = 'auto25'
+    model_name = 'auto50'
     logger.info('model: {}'.format(model_name))
     default_save_data_folder = os.path.abspath('../resource/simulated_data')
     default_config_path = config_path_set[model_name]
     default_use_hidden = "True"
     default_sample_type = 'uniform'
-    default_train_sample_size = 256
-    default_valid_sample_size = 128
-    default_test_sample_size = 128
+    default_train_sample_size = 32
+    default_valid_sample_size = 8
+    default_test_sample_size = 8
     default_personalized_type = 2
     parser = argparse.ArgumentParser(description='simulate data generating')
     parser.add_argument('--config_path', type=str, default=default_config_path)
@@ -72,13 +72,13 @@ def main():
     elif model_name == 'zheng':
         model = ZhengModel(config)
     elif model_name == 'auto50':
-        model = AutoModel(config, use_hidden, node_number=50)
+        model = AutoModel(config, use_hidden, 50, default_save_data_folder)
     elif model_name == 'auto25':
-        model = AutoModel(config, use_hidden, node_number=25)
+        model = AutoModel(config, use_hidden, 25, default_save_data_folder)
     elif model_name == 'auto10':
-        model = AutoModel(config, use_hidden, node_number=10)
+        model = AutoModel(config, use_hidden, 10, default_save_data_folder)
     elif model_name == 'auto4':
-        model = AutoModel(config, use_hidden, node_number=4)
+        model = AutoModel(config, use_hidden, 4, default_save_data_folder)
     else:
         raise ValueError('')
 
@@ -361,11 +361,13 @@ class AutoModel(object):
     """
     Model Reference
     """
-    def __init__(self, config, hidden, node_number):
+    def __init__(self, config, hidden, node_number, save_graph_folder):
         self.use_hidden = hidden
         self.node_number = node_number
+        self.save_graph_folder = save_graph_folder
         self.config = self.__load_config(config)
         self.adjacent_mat = self.generate_directed_acyclic_graph()
+        self.save_oracle_graph()
 
     @staticmethod
     def __load_config(config):
@@ -381,6 +383,15 @@ class AutoModel(object):
             'init_value': config['sample_characteristic']['init_value'],
             'obs_noise_coefficient': config['sample_characteristic']['gaussian_observation_noise_std_coefficient']
         }
+
+    def save_oracle_graph(self):
+        mat = self.adjacent_mat
+        obj = {}
+        for i in range(self.node_number):
+            obj[i] = {}
+            for j in range(self.node_number):
+                obj[i][j] = mat[i, j]
+        pickle.dump(mat, open(os.path.join(self.save_graph_folder, 'auto_{}_graph.pkl'.format(self.node_number)), 'wb'))
 
     def generate_directed_acyclic_graph(self):
         node_num = self.node_number

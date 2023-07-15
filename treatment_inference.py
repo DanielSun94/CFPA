@@ -29,8 +29,8 @@ def main(argument):
     # constraint = argument['constraint_type']
 
     inference_model_name_dict = {
-        'CTP': ('treatment.TEP.zheng.False.20230406084817647020.3.40.model', False),
-        # 'CTP': ('treatment.TEP.auto50.True.20230406091103854524.0.20.model', False)
+        # 'CTP': ('treatment.TEP.zheng.False.20230406084817647020.3.40.model', False),
+        'CTP': ('treatment.TEP.auto50.True.20230406105220826230.20.20.model', False)
         # 'CTP-True': ('treatment.TEP.hao_true_lmci.True.20230404124633020107.0.0.model', True),
         # 'CTP': ('treatment.TEP.hao_true_lmci.True.20230404123554677496.0.20.model', False),
         # 'LinearODE': ('treatment.TEP.hao_true_lmci.True.20230404100400203503.1.300.model', False),
@@ -52,9 +52,11 @@ def main(argument):
     time_list = np.array([(i + 1) * 0.05 * (obs_time - time_offset) + time_offset for i in range(20)])
 
     oracle_treatment_dataset = generate_oracle_behavior(
-        hidden_flag, test_dataset, dataset_name, stat_dict, t_feature, t_time, time_list, origin_t_value, time_offset)
+        hidden_flag, test_dataset, dataset_name, stat_dict, t_feature, t_time, time_list, origin_t_value, time_offset,
+        oracle_graph)
     oracle_original_dataset = generate_oracle_behavior(
-        hidden_flag, test_dataset, dataset_name, stat_dict, None, None, time_list, None, time_offset)
+        hidden_flag, test_dataset, dataset_name, stat_dict, None, None, time_list, None, time_offset,
+        oracle_graph)
 
     data_dict = dict()
     for model_name in inference_model_name_dict:
@@ -133,15 +135,15 @@ def get_oracle_model(use_hidden, model_name, para_dict, init_dict, time_offset, 
     elif 'zheng' in model_name:
         return OracleZhengModel(use_hidden, para_dict, init_dict, time_offset, stat_dict)
     elif 'auto50' in model_name:
-        pass
+        return OracleAutoModel(use_hidden, init_dict, time_offset, stat_dict, 50)
     elif 'auto25' in model_name:
-        pass
+        return OracleAutoModel(use_hidden, init_dict, time_offset, stat_dict, 25)
     else:
         raise ValueError('')
 
 
 def generate_oracle_behavior(hidden_flag, dataloader, dataset, stat_dict, treatment_feature, treatment_time,
-                             time_list, treatment_value, time_offset):
+                             time_list, treatment_value, time_offset, oracle_graph):
     prediction_list, sample_ids = [], []
     for batch in dataloader:
         _, _, _, _, _, _, _, _, _, _, sample_id_list, _, init_list, para_list = batch
