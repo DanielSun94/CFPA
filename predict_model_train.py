@@ -1,9 +1,9 @@
-import numpy as np
-from default_config import args, logger, ckpt_folder, adjacency_mat_folder, oracle_graph_dict
+from default_config import args, logger, ckpt_folder, adjacency_mat_folder
 from model.causal_trajectory_prediction import TrajectoryPrediction
 from torch.optim import Adam
 from torch import FloatTensor
-from util import get_data_loader, save_model, LagrangianMultiplierStateUpdater, predict_performance_evaluation
+from util import get_data_loader, save_model, LagrangianMultiplierStateUpdater, predict_performance_evaluation, \
+    get_oracle_causal_graph
 
 
 def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, argument):
@@ -76,22 +76,6 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
     return model
 
 
-def get_oracle_causal_graph(prior_causal_mask, name_id_dict):
-    assert prior_causal_mask in oracle_graph_dict
-    oracle_graph = oracle_graph_dict[prior_causal_mask]
-    logger.info('prior causal mask')
-    logger.info(oracle_graph)
-    bool_graph = np.zeros([len(oracle_graph), len(oracle_graph)])
-    new_dict = {key: name_id_dict[key] for key in name_id_dict}
-    if 'hidden' not in new_dict and len(name_id_dict) == len(oracle_graph) - 1:
-        new_dict['hidden'] = len(new_dict)
-    for cause in oracle_graph:
-        for consequence in oracle_graph[cause]:
-            idx_1, idx_2 = new_dict[cause], new_dict[consequence]
-            bool_graph[idx_1, idx_2] = oracle_graph[cause][consequence]
-    return bool_graph
-
-
 def get_data(argument):
     # data setting
     dataset_name = argument['dataset_name']
@@ -160,13 +144,15 @@ def get_lagrangian_updater(argument, validation_dataloader):
 
 
 def framework(argument):
-    dataloader_dict, name_id_dict, _, id_type_list = get_data(argument)
+    assert argument['hidden_flag'] == "True" or argument['hidden_flag'] == "False"
+    dataloader_dict, name_id_dict, oracle_graph, id_type_list = get_data(argument)
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
     test_dataloader = dataloader_dict['test']
     prior_causal_mask_name = argument['prior_causal_mask']
+    use_hidden = True if argument['hidden_flag'] == "True" else False
 
-    prior_causal_mask = get_oracle_causal_graph(prior_causal_mask_name, name_id_dict)
+    prior_causal_mask = get_oracle_causal_graph(name_id_dict, use_hidden, prior_causal_mask_name, oracle_graph)
     model = get_model(argument, id_type_list)
     model.set_adjacency(prior_causal_mask)
     multiplier_updater = get_lagrangian_updater(argument, validation_dataloader)

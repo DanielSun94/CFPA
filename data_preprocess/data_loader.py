@@ -54,9 +54,6 @@ def format_check(dataset):
             if i != 0:
                 assert len(single_visit) == len(observation_list[i - 1])
             assert 'visit_time' in single_visit
-            for key in single_visit:
-                if key == 'visit_time':
-                    assert single_visit[key] >= 0 and isinstance(single_visit[key], float)
     return True
 
 
@@ -131,7 +128,7 @@ class SequentialVisitDataset(Dataset):
                     idx = self.name_id_dict[key]
                     init_trans[idx] = trans_value
                 else:
-                    assert key == 'tau_o'
+                    assert key == 'tau_o' or 'node' in key
                 init_dict[key] = origin_value
 
             observation_sequence = sorted(observation_sequence, key=lambda x: x['visit_time'], reverse=False)

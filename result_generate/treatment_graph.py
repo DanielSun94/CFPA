@@ -18,18 +18,44 @@ color_pallete = sns.color_palette(palette='Accent')
 
 
 def main():
-    sample_id = 'test_138'
-    data_name = 'hao_true_lmci,True,n,52,0.csv'
-    hidden = True
-    start_time = 50
-    treat_time = 52
-    end_time = 56
-    data_set = data_name.split(',')[0]
+    # sample_id = 'test_138'
+    # data_name = 'hao_true_lmci,True,n,52,0.csv'
+    data_name = 'zheng,False,n,0,0.csv'
 
-    if hidden:
-        feature_list = ['a', 'tau_p', 'n', 'c']
+    if 'hao' in data_name:
+        sample_id = 'test_138'
+        hidden = True
+        data_set = data_name.split(',')[0]
+        start_time = 50
+        treat_time = 52
+        end_time = 56
+        if hidden:
+            feature_list = ['a', 'tau_p', 'n', 'c']
+        else:
+            feature_list = ['a', 'tau_p', 'tau_o', 'n', 'c']
+    elif 'zheng' in data_name:
+        sample_id = 'test_138'
+        data_set = data_name.split(',')[0]
+        start_time = -10
+        treat_time = 0
+        end_time = 20
+        feature_list = ['a', 'tau', 'n', 'c']
+    elif 'auto25' in data_name:
+        sample_id = 'test_64'
+        data_set = data_name.split(',')[0]
+        start_time = 0
+        treat_time = 1
+        end_time = 2
+        feature_list = ['node_i'.format(i) for i in range(5, 25)]
+    elif 'auto50' in data_name:
+        sample_id = 'test_64'
+        data_set = data_name.split(',')[0]
+        start_time = 0
+        treat_time = 1
+        end_time = 2
+        feature_list = ['node_i'.format(i) for i in range(5, 50)]
     else:
-        feature_list = ['a', 'tau_p', 'tau_o', 'n', 'c']
+        raise ValueError('')
 
     data, time = read_treatment_data(data_name, feature_list)
     plot_data = data[sample_id]

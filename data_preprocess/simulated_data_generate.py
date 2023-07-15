@@ -6,6 +6,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from yaml import Loader, load
 from default_config import missing_flag_num as miss_placeholder
+from default_config import logger
 
 
 config_path_set = {
@@ -13,18 +14,21 @@ config_path_set = {
     'zheng': os.path.abspath('../resource/zheng_model_config.yaml'),
     'auto50': os.path.abspath('../resource/auto_model_config.yaml'),
     'auto25': os.path.abspath('../resource/auto_model_config.yaml'),
+    'auto10': os.path.abspath('../resource/auto_model_config.yaml'),
+    'auto4': os.path.abspath('../resource/auto_model_config.yaml'),
 }
 
 
 def main():
     model_name = 'auto25'
+    logger.info('model: {}'.format(model_name))
     default_save_data_folder = os.path.abspath('../resource/simulated_data')
     default_config_path = config_path_set[model_name]
     default_use_hidden = "True"
     default_sample_type = 'uniform'
-    default_train_sample_size = 20480
-    default_valid_sample_size = 512
-    default_test_sample_size = 512
+    default_train_sample_size = 256
+    default_valid_sample_size = 128
+    default_test_sample_size = 128
     default_personalized_type = 2
     parser = argparse.ArgumentParser(description='simulate data generating')
     parser.add_argument('--config_path', type=str, default=default_config_path)
@@ -71,6 +75,10 @@ def main():
         model = AutoModel(config, use_hidden, node_number=50)
     elif model_name == 'auto25':
         model = AutoModel(config, use_hidden, node_number=25)
+    elif model_name == 'auto10':
+        model = AutoModel(config, use_hidden, node_number=10)
+    elif model_name == 'auto4':
+        model = AutoModel(config, use_hidden, node_number=4)
     else:
         raise ValueError('')
 
@@ -138,56 +146,6 @@ class ZhengModel(object):
         train, valid, test, stat_dict = self.post_preprocess(train, valid, test)
         return train, valid, test, stat_dict
 
-    def post_preprocess(self, train, valid, test, transformer=True):
-        true_dict = {'a': [], 'tau': [], 'n': [], 'c': []}
-        if transformer:
-            for data_fraction in train, valid, test:
-                for sample in data_fraction:
-                    true_value = sample['true_value']
-                    for visit in true_value:
-                        for key in visit:
-                            if key in true_dict:
-                                true_dict[key].append(visit[key])
-            true_stat_dict = dict()
-            for key in true_dict:
-                true_stat_dict[key] = np.mean(true_dict[key]), np.std(true_dict[key])
-        else:
-            true_stat_dict = {'a': [0, 1], 'tau': [0, 1], 'n': [0, 1], 'c': [0, 1]}
-
-        new_train, new_valid, new_test = [], [], []
-        for origin, new in zip([train, valid, test], [new_train, new_valid, new_test]):
-            for sample in origin:
-                new_sample = {'para': sample['para'], 'id': sample['id']}
-                init_dict = dict()
-                for key in sample['init']:
-                    value = sample['init'][key]
-                    assert key != 'visit_time'
-                    assert value >= 0 or value == miss_placeholder
-                    init_dict[key] = {
-                        'origin': value,
-                        'transformed': (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
-                    }
-                new_sample['init'] = init_dict
-
-                obs, true = [], []
-                for origin_visit_list, new_visit_list in \
-                        zip([sample['observation'], sample['true_value']], [obs, true]):
-                    for single_visit in origin_visit_list:
-                        new_single_visit = {}
-                        for key in single_visit:
-                            value = single_visit[key]
-                            if key != 'visit_time':
-                                assert value >= 0 or value == miss_placeholder
-                            if key == 'visit_time' or value == miss_placeholder:
-                                new_single_visit[key] = value
-                            else:
-                                new_single_visit[key] = (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
-                        new_visit_list.append(new_single_visit)
-                new_sample['observation'] = obs
-                new_sample['true_value'] = true
-                new.append(new_sample)
-        return new_train, new_valid, new_test, true_stat_dict
-
     def generate_dataset_fraction(self, sample_size, personalized_type, faction):
         uniform_interval = self.__sample_info['uniform_interval']
         uniform_visit = self.__sample_info['uniform_visit']
@@ -203,6 +161,7 @@ class ZhengModel(object):
             visit_interval_list = visit_interval_list[1:]
             trajectory = self.__generate_trajectory(init_time, visit_interval_list, init, para,
                                                     personalized_type, faction, i, noise_coefficient)
+            logger.info('sample: {} generated'.format(i))
             dataset.append(trajectory)
         return dataset
 
@@ -314,15 +273,6 @@ class ZhengModel(object):
         }
 
     def __add_noise(self, sample_dict, init_mean):
-        """
-        There are two types of noise, the first is observation noise which occurs in every feature.
-        The noise signal follows a Gaussian distribution with mean zero and a standard variance
-        The standard variance is the gaussian_ratio * init value
-        The sampled data will be discarded (and resampled) if it is a negative number
-        (and keep the sampled data follows Gaussian distribution)
-
-        The second type is the missing noise, which means we lost signal with respect to a preset lost ratio
-        """
         noisy_sample = {}
         for key in sample_dict:
             noise_feature = -1
@@ -343,6 +293,56 @@ class ZhengModel(object):
                 final_sample[key] = miss_placeholder
         return final_sample
 
+    def post_preprocess(self, train, valid, test, transformer=True):
+        true_dict = {'a': [], 'tau': [], 'n': [], 'c': []}
+        if transformer:
+            for data_fraction in train, valid, test:
+                for sample in data_fraction:
+                    true_value = sample['true_value']
+                    for visit in true_value:
+                        for key in visit:
+                            if key in true_dict:
+                                true_dict[key].append(visit[key])
+            true_stat_dict = dict()
+            for key in true_dict:
+                true_stat_dict[key] = np.mean(true_dict[key]), np.std(true_dict[key])
+        else:
+            true_stat_dict = {'a': [0, 1], 'tau': [0, 1], 'n': [0, 1], 'c': [0, 1]}
+
+        new_train, new_valid, new_test = [], [], []
+        for origin, new in zip([train, valid, test], [new_train, new_valid, new_test]):
+            for sample in origin:
+                new_sample = {'para': sample['para'], 'id': sample['id']}
+                init_dict = dict()
+                for key in sample['init']:
+                    value = sample['init'][key]
+                    assert key != 'visit_time'
+                    assert value >= 0 or value == miss_placeholder
+                    init_dict[key] = {
+                        'origin': value,
+                        'transformed': (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
+                    }
+                new_sample['init'] = init_dict
+
+                obs, true = [], []
+                for origin_visit_list, new_visit_list in \
+                        zip([sample['observation'], sample['true_value']], [obs, true]):
+                    for single_visit in origin_visit_list:
+                        new_single_visit = {}
+                        for key in single_visit:
+                            value = single_visit[key]
+                            if key != 'visit_time':
+                                assert value >= 0 or value == miss_placeholder
+                            if key == 'visit_time' or value == miss_placeholder:
+                                new_single_visit[key] = value
+                            else:
+                                new_single_visit[key] = (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
+                        new_visit_list.append(new_single_visit)
+                new_sample['observation'] = obs
+                new_sample['true_value'] = true
+                new.append(new_sample)
+        return new_train, new_valid, new_test, true_stat_dict
+
     @staticmethod
     def get_type_list():
         return {'a': 'c', 'tau': 'c', 'n': 'c', 'c': 'c'}
@@ -353,7 +353,7 @@ class ZhengModel(object):
             'a': {'a': 1, 'tau': 1, 'n': 0, 'c': 0},
             'tau': {'a': 0, 'tau': 1, 'n': 1, 'c': 0},
             'n': {'a': 0, 'tau': 0, 'n': 1, 'c': 1},
-            'c': {'a': 0, 'tau_o': 0, 'n': 0, 'c': 1},
+            'c': {'a': 0, 'tau': 0, 'n': 0, 'c': 1},
         }
 
 
@@ -364,10 +364,8 @@ class AutoModel(object):
     def __init__(self, config, hidden, node_number):
         self.use_hidden = hidden
         self.node_number = node_number
-        self.accept_ratio = 0.15
-        self.adjacent_mat = self.generate_directed_acyclic_graph()
-
         self.config = self.__load_config(config)
+        self.adjacent_mat = self.generate_directed_acyclic_graph()
 
     @staticmethod
     def __load_config(config):
@@ -377,6 +375,7 @@ class AutoModel(object):
             'uniform_interval': config['sample_characteristic']['uniform_interval'],
             'uniform_visit': config['sample_characteristic']['uniform_visit'],
             't_0': config['sample_characteristic']['t_0'],
+            'hidden_node': config['sample_characteristic']['hidden_node'],
             'derivative_noise_coeff': config['sample_characteristic']['gaussian_derivative_noise_std_coefficient'],
             'personalized_turb': config['sample_characteristic']['personalized_turbulence_coefficient'],
             'init_value': config['sample_characteristic']['init_value'],
@@ -390,7 +389,7 @@ class AutoModel(object):
             adjacent_mat[i, i] = 1
             for j in range(i + 1, len(adjacent_mat)):
                 ratio = random.uniform(0, 1)
-                if self.accept_ratio > ratio:
+                if self.config['edge_ratio'] > ratio:
                     adjacent_mat[i, j] = 1
         return adjacent_mat
 
@@ -399,9 +398,13 @@ class AutoModel(object):
 
     def get_oracle_graph(self):
         oracle_graph_dict = {}
-        for i in range(self.node_number):
+        if self.config['hidden_node'] == 'first_five' and self.use_hidden:
+            start_idx = 5
+        else:
+            start_idx = 0
+        for i in range(start_idx, self.node_number):
             oracle_graph_dict['node_{}'.format(i)] = dict()
-            for j in range(self.node_number):
+            for j in range(start_idx, self.node_number):
                 oracle_graph_dict['node_{}'.format(i)]['node_{}'.format(j)] = self.adjacent_mat[i, j]
         return oracle_graph_dict
 
@@ -427,6 +430,7 @@ class AutoModel(object):
             visit_interval_list = visit_interval_list[1:]
             trajectory = self.__generate_trajectory(init_time, visit_interval_list,
                                                     personalized_type, faction, i, noise_coefficient)
+            logger.info('sample: {} generated'.format(i))
             dataset.append(trajectory)
         return dataset
 
@@ -528,11 +532,9 @@ class AutoModel(object):
         """
         noisy_sample = {}
         for key in sample_dict:
-            noise_feature = -1
-            while noise_feature <= 0:
-                standard_variance = init_mean[key] * self.config['obs_noise_coefficient']
-                noise = random.gauss(0, standard_variance)
-                noise_feature = noise + sample_dict[key]
+            standard_variance = init_mean[key] * self.config['obs_noise_coefficient']
+            noise = random.gauss(0, standard_variance)
+            noise_feature = noise + sample_dict[key]
             noisy_sample[key] = noise_feature
 
         missing_rate = self.config['missing_rate']
@@ -546,6 +548,12 @@ class AutoModel(object):
         return final_sample
 
     def post_preprocess(self, train, valid, test, transformer=True):
+        if self.use_hidden:
+            assert self.config['hidden_node'] == 'first_five'
+            hidden_nodes = {'node_0', 'node_1', 'node_2', 'node_3', 'node_4'}
+        else:
+            hidden_nodes = {}
+
         true_dict = {'node_{}'.format(i): [] for i in range(self.node_number)}
         if transformer:
             for data_fraction in train, valid, test:
@@ -564,12 +572,12 @@ class AutoModel(object):
         new_train, new_valid, new_test = [], [], []
         for origin, new in zip([train, valid, test], [new_train, new_valid, new_test]):
             for sample in origin:
-                new_sample = {'id': sample['id']}
+                new_sample = {'id': sample['id'], 'para': sample['init']}
                 init_dict = dict()
                 for key in sample['init']:
                     value = sample['init'][key]
                     assert key != 'visit_time'
-                    assert value >= 0 or value == miss_placeholder
+                    # assert value >= 0 or value == miss_placeholder
                     init_dict[key] = {
                         'origin': value,
                         'transformed': (value - true_stat_dict[key][0]) / true_stat_dict[key][1]
@@ -583,9 +591,7 @@ class AutoModel(object):
                         new_single_visit = {}
                         for key in single_visit:
                             value = single_visit[key]
-                            if key != 'visit_time':
-                                assert value >= 0 or value == miss_placeholder
-                            if key in {'node_0', 'node_1', 'node_2', 'node_3', 'node_4'} and self.use_hidden:
+                            if key in hidden_nodes and self.use_hidden:
                                 continue
                             if key == 'visit_time' or value == miss_placeholder:
                                 new_single_visit[key] = value
@@ -623,19 +629,21 @@ class HaoModel(object):
         for key in miss_dict:
             self.__missing_rate_dict[key] = miss_dict[key]
         self.__sample_info['t_0'] = sample['t_0']
+        self.__sample_info['group'] = sample['group']
         self.__sample_info['random_max_visit'] = sample['random_max_visit']
         self.__sample_info['random_min_visit'] = sample['random_min_visit']
         self.__sample_info['random_max_interval'] = sample['random_max_interval']
         self.__sample_info['random_min_interval'] = sample['random_min_interval']
         self.__sample_info['uniform_visit'] = sample['uniform_visit']
         self.__sample_info['uniform_interval'] = sample['uniform_interval']
-        self.__sample_info['personalized_turb'] = sample['personalized_turbulence_coefficient']
+        self.__sample_info['personalized_turb_1'] = sample['personalized_turbulence_coefficient_1']
+        self.__sample_info['personalized_turb_2'] = sample['personalized_turbulence_coefficient_2']
         self.__sample_info['obs_noise_coefficient'] = sample['gaussian_observation_noise_std_coefficient']
         self.__sample_info['derivative_noise_coefficient'] = sample['gaussian_derivative_noise_std_coefficient']
         self.__sample_info['unit'] = sample['unit']
         self.__sample_info['uniform'] = sample['distribution']
-        for ((mean, std), info_dict) in \
-            zip([[self.__ad_para_mean, self.__ad_para_std], [self.__lmci_para_mean, self.__lmci_para_std],
+        for ((mean, std), info_dict) in zip(
+                [[self.__ad_para_mean, self.__ad_para_std], [self.__lmci_para_mean, self.__lmci_para_std],
                  [self.__cn_para_mean, self.__cn_para_std]],
                 [config['ad']['parameters'], config['lmci']['parameters'], config['cn']['parameters']]):
             for key in info_dict:
@@ -864,6 +872,7 @@ class HaoModel(object):
                 raise ValueError('')
             trajectory = self.__generate_trajectory(init_time, visit_interval_list, init_mean, init_std, para_mean,
                                                     para_std, personalized_type, faction, i, noise_coefficient)
+            logger.info('sample: {} generated'.format(i))
             dataset.append(trajectory)
         return dataset
 

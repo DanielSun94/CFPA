@@ -1,9 +1,7 @@
-import copy
-import numpy as np
 import torch
 from torch import no_grad, FloatTensor, mean
-from default_config import args, logger, ckpt_folder, oracle_graph_dict
-from util import get_data_loader, save_model
+from default_config import args, logger, ckpt_folder
+from util import get_data_loader, save_model, get_oracle_causal_graph
 from model.treatment_effect_evaluation import TreatmentEffectEstimator
 from torch.optim import Adam
 import random
@@ -110,7 +108,7 @@ def performance_evaluation(model, loader, loader_fraction, observation_time_list
                     .format(loader_fraction, pred_loss, treatment_loss))
 
 
-def framework(argument, oracle_graph):
+def framework(argument):
     # data setting
     dataset_name = argument['dataset_name']
     data_path = argument['data_path']
@@ -118,6 +116,8 @@ def framework(argument, oracle_graph):
     predict_label = True if argument['predict_label'] == 'True' else False
     random_observation_time = True if argument['treatment_random_observation_time'] else False
     mask_tag = argument['mask_tag']
+    use_hidden = True if argument['hidden_flag'] == 'True' else False
+    prior_causal_mask = argument['prior_causal_mask']
 
     # data loader setting
     minimum_observation = argument['minimum_observation']
@@ -155,7 +155,7 @@ def framework(argument, oracle_graph):
     }
 
 
-    dataloader_dict, name_id_dict, _, id_type_list, stat_dict = \
+    dataloader_dict, name_id_dict, oracle_graph, id_type_list, stat_dict = \
         get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
                         reconstruct_input, predict_label, device=device)
 
@@ -164,11 +164,10 @@ def framework(argument, oracle_graph):
     treatment_idx = name_id_dict[treatment_feature]
     train_dataloader = dataloader_dict['train']
     validation_dataloader = dataloader_dict['valid']
-
-    oracle_graph = convert_oracle_graph(oracle_graph, name_id_dict)
+    prior_causal_mask = get_oracle_causal_graph(name_id_dict, use_hidden, prior_causal_mask, oracle_graph)
 
     models = TreatmentEffectEstimator(
-        dataset_name=dataset_name, device=device, treatment_idx=treatment_idx, oracle_graph=oracle_graph,
+        dataset_name=dataset_name, device=device, treatment_idx=treatment_idx, oracle_graph=prior_causal_mask,
         batch_size=batch_size, treatment_feature=treatment_feature, new_model_number=new_model_number,
         id_type_list=id_type_list, model_args=model_args, treatment_time=treatment_time,
         treatment_value=treatment_value, process_name=process_name, optimize_method=treatment_optimize_method
@@ -186,35 +185,8 @@ def framework(argument, oracle_graph):
           random_observation_time, argument)
 
 
-def convert_oracle_graph(oracle_graph, name_id_dict):
-    new_name_id_dict = copy.deepcopy(name_id_dict)
-    np_oracle = np.zeros([len(oracle_graph), len(oracle_graph)])
-    if 'hidden' in oracle_graph:
-        new_name_id_dict['hidden'] = len(new_name_id_dict)
-    for key_1 in oracle_graph:
-        for key_2 in oracle_graph[key_1]:
-            value = oracle_graph[key_1][key_2]
-            idx_1 = new_name_id_dict[key_1]
-            idx_2 = new_name_id_dict[key_2]
-            np_oracle[idx_1, idx_2] = value
-    converted_graph = FloatTensor(np_oracle)
-    return converted_graph
-
-
-def read_oracle_graph(dataset_name, true_casual):
-    if dataset_name == 'hao_true_lmci' and true_casual:
-        return oracle_graph_dict['hao_true_causal']
-    elif dataset_name == 'hao_true_lmci' and not true_casual:
-        return oracle_graph_dict['hao_true_not_causal']
-    else:
-        raise ValueError('')
-
-
 def main():
-    dataset_name = args['dataset_name']
-    true_causal = True if args['treatment_true_causal'] == "True" else False
-    oracle_graph = read_oracle_graph(dataset_name, true_causal)
-    framework(args, oracle_graph)
+    framework(args)
 
 
 if __name__ == '__main__':

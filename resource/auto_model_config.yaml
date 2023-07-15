@@ -3,10 +3,11 @@ sample_characteristic:
   edge_ratio: 0.15
   missing_rate: 0.05
   uniform_visit: 15
-  uniform_interval: 1
+  uniform_interval: 0.25
   distribution: "uniform"
-  gaussian_derivative_noise_std_coefficient: 0.1
+  gaussian_derivative_noise_std_coefficient: 0
   gaussian_observation_noise_std_coefficient: 0
   personalized_turbulence_coefficient: 0.2
   t_0: 0
-  init_value: 0.01
+  init_value: 1
+  hidden_node: 'first_five'

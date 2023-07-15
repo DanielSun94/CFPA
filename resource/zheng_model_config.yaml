@@ -10,7 +10,7 @@ sample_characteristic:
   distribution: "uniform"
   gaussian_observation_noise_std_coefficient: 0
   gaussian_derivative_noise_std_coefficient: 0
-  personalized_turbulence_coefficient: 0.1
+  personalized_turbulence_coefficient: 0.2
 lmci-ad:
   base_initial_value:
     a: 0.000141

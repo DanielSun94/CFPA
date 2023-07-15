@@ -2,11 +2,9 @@ import csv
 import os.path
 import numpy as np
 from default_config import ckpt_folder, args, treatment_result_inference_folder
-from util import get_data_loader, OracleHaoModel
-import pickle
+from util import get_data_loader, OracleHaoModel, get_oracle_causal_graph, OracleAutoModel, OracleZhengModel
 from torch import FloatTensor, load, no_grad, reshape, stack
 from model.treatment_effect_evaluation import TreatmentEffectEstimator
-from treatment_analysis_retrain import convert_oracle_graph, read_oracle_graph
 
 def main(argument):
     assert argument['hidden_flag'] == "True" or argument['hidden_flag'] == "False"
@@ -27,18 +25,21 @@ def main(argument):
     t_time = argument['treatment_time']
     obs_time = argument['treatment_observation_time']
     t_value = argument['treatment_value']
+    use_hidden = True if argument['hidden_flag'] == 'True' else False
     # constraint = argument['constraint_type']
 
     inference_model_name_dict = {
-        'CTP-True': ('treatment.TEP.hao_true_lmci.True.20230404124633020107.0.0.model', True),
-        'CTP': ('treatment.TEP.hao_true_lmci.True.20230404123554677496.0.20.model', False),
-        'LinearODE': ('treatment.TEP.hao_true_lmci.True.20230404100400203503.1.300.model', False),
-        'NGM': ('treatment.TEP.hao_true_lmci.True.20230404100400220765.1.300.model', False),
-        'NODE': ('treatment.TEP.hao_true_lmci.True.20230404101831434229.0.20.model', False),
-        'CF-ODE': ('treatment.TEP.hao_true_lmci.True.20230404100400182225.1.300.model', False),
+        'CTP': ('treatment.TEP.zheng.False.20230406084817647020.3.40.model', False),
+        # 'CTP': ('treatment.TEP.auto50.True.20230406091103854524.0.20.model', False)
+        # 'CTP-True': ('treatment.TEP.hao_true_lmci.True.20230404124633020107.0.0.model', True),
+        # 'CTP': ('treatment.TEP.hao_true_lmci.True.20230404123554677496.0.20.model', False),
+        # 'LinearODE': ('treatment.TEP.hao_true_lmci.True.20230404100400203503.1.300.model', False),
+        # 'NGM': ('treatment.TEP.hao_true_lmci.True.20230404100400220765.1.300.model', False),
+        # 'NODE': ('treatment.TEP.hao_true_lmci.True.20230404101831434229.0.20.model', False),
+        # 'CF-ODE': ('treatment.TEP.hao_true_lmci.True.20230404100400182225.1.300.model', False),
     }
 
-    dataloader_dict, name_id_dict, _, id_type_list, stat_dict = \
+    dataloader_dict, name_id_dict, oracle_graph, id_type_list, stat_dict = \
         get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
                         reconstruct_input, predict_label, device=device)
     test_dataset = dataloader_dict['test']
@@ -59,8 +60,10 @@ def main(argument):
     for model_name in inference_model_name_dict:
         model_file, true_causal = inference_model_name_dict[model_name]
 
-        oracle_graph = read_oracle_graph(dataset_name, true_causal)
-        oracle_graph = convert_oracle_graph(oracle_graph, name_id_dict)
+        if true_causal:
+            oracle_graph = get_oracle_causal_graph(name_id_dict, use_hidden, 'use_data', oracle_graph)
+        else:
+            oracle_graph = get_oracle_causal_graph(name_id_dict, use_hidden, 'not_causal', oracle_graph)
 
         model_treatment_dataset = generate_model_behavior(
             hidden_flag, test_dataset, dataset_name, t_feature, t_time, time_list, t_value, t_idx, model_name,
@@ -127,6 +130,12 @@ def fuse_result(data_dict, time_list):
 def get_oracle_model(use_hidden, model_name, para_dict, init_dict, time_offset, stat_dict):
     if 'hao' in model_name:
         return OracleHaoModel(use_hidden, para_dict, init_dict, time_offset, stat_dict)
+    elif 'zheng' in model_name:
+        return OracleZhengModel(use_hidden, para_dict, init_dict, time_offset, stat_dict)
+    elif 'auto50' in model_name:
+        pass
+    elif 'auto25' in model_name:
+        pass
     else:
         raise ValueError('')
 

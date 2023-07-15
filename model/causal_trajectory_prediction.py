@@ -60,7 +60,7 @@ class TrajectoryPrediction(Module):
         self.consistent_feature = self.get_consistent_feature_flag()
 
     def set_adjacency_graph(self, adjacency):
-        self.derivative.adjacency = adjacency
+        self.derivative.set_adjacency(adjacency)
 
     def get_consistent_feature_flag(self):
         input_type_list = self.input_type_list
@@ -310,18 +310,21 @@ class CausalDerivative(Derivative):
     def print_adjacency(self, iter_idx, write_folder=None):
         with no_grad():
             net_list = self.net_list
-            connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
-            constraint = trace(matrix_exp((connect_mat > self.clamp_edge_threshold).float())) - self.input_size
-        logger.info('binary graph constraint: {}'.format(constraint))
-        connect_mat = connect_mat.to('cpu').numpy()
-        logger.info('adjacency float')
-        for item in connect_mat:
-            item_str_list = []
-            for key in item:
-                key = float(key)
-                item_str_list.append('{:>9.9f}'.format(key))
-            item_str = ', '.join(item_str_list)
-            logger.info('[' + item_str + ']')
+            if len(net_list) < 8:
+                connect_mat = self.calculate_connectivity_mat(net_list, absolute=True)
+                constraint = trace(matrix_exp((connect_mat > self.clamp_edge_threshold).float())) - self.input_size
+                logger.info('binary graph constraint: {}'.format(constraint))
+                connect_mat = connect_mat.to('cpu').numpy()
+                logger.info('adjacency float')
+                for item in connect_mat:
+                    item_str_list = []
+                    for key in item:
+                        key = float(key)
+                        item_str_list.append('{:>9.9f}'.format(key))
+                    item_str = ', '.join(item_str_list)
+                    logger.info('[' + item_str + ']')
+            else:
+                logger.info('adjacency print skipped for its size')
 
     def forward(self, t, inputs):
         # designed for this format

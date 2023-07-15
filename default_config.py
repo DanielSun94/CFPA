@@ -17,21 +17,42 @@ ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
 fig_save_folder = os.path.join(script_path, 'resource', 'figure')
 
-dataset = 'hao_true_lmci'
-hidden_flag = 'True'
+dataset = 'zheng' # 'zheng
+hidden_flag = 'False' # False
 distribution_mode = 'uniform'
-device = 'cuda:5'
-constraint_type = 'none'
+device = 'cuda:1'
+constraint_type = 'DAG'
 model = 'ODE'
 sparse_constraint_weight = 0.08
-prior_causal_mask = 'hao_true_causal'
+prior_causal_mask = 'not_causal' # hao_true_causal, not_causal use_data
 non_linear_mode = "True"
 treatment_optimize_method = 'difference' # difference min
-
-new_model_number = 8
-treatment_init_model_name = 'predict.CTP.hao_true_lmci.True.none.20230404121230308383.9.1500.model'
+new_model_number = 4
 treatment_filter_threshold = 0.04
+
+# hao_true_lmci
+# treatment_feature = 'n'
+# treatment_time = 52
+# treatment_observation_time = 57
+# treatment_value = 0
+
+# zheng
+treatment_feature = 'n'
+treatment_time = 0
+treatment_observation_time = 10
+treatment_value = 0
+
+# auto
+# treatment_feature = 'node_15'
+# treatment_time = 1
+# treatment_observation_time = 3
+# treatment_value = 1
 assert model in {'ODE'}
+
+# treatment_init_model_name = 'predict.CTP.hao_true_lmci.True.none.20230404121230308383.18.2900.model'
+# treatment_init_model_name = 'predict.CTP.zheng.False.DAG.20230406082853239080.8.100.model'
+treatment_init_model_name = 'predict.CTP.auto50.True.DAG.20230406085818294806.49.100.model'
+
 
 if not os.path.exists(sim_data_folder):
     os.makedirs(sim_data_folder)
@@ -90,10 +111,10 @@ default_config = {
     'sparse_constraint_weight': sparse_constraint_weight,
 
     # treatment
-    'treatment_feature': 'n',
-    'treatment_time': 52,
-    'treatment_observation_time': 57,
-    'treatment_value': 0,
+    'treatment_feature': treatment_feature,
+    'treatment_time': treatment_time,
+    'treatment_observation_time': treatment_observation_time,
+    'treatment_value': treatment_value,
     'treatment_sample_multiplier': 1,
     'treatment_eval_iter_interval': 20,
     "treatment_predict_lr" : 0.0001,
@@ -224,17 +245,41 @@ if args["dataset_name"] == 'hao_true_lmci':
     args["time_offset"] = 50
     args["minimum_observation"] = 4
     args["input_size"] = 4
+    args["hidden_size"] = 8
 elif args["dataset_name"] == 'hao_false_lmci':
     args["data_path"] = os.path.join(sim_data_folder, 'sim_hao_model_hidden_False_personal_2_type_{}.pkl'
                                      .format(distribution_mode))
     args["time_offset"] = 50
     args["minimum_observation"] = 4
     args["input_size"] = 5
+    args["hidden_size"] = 8
 elif args["dataset_name"] == 'spiral_2d':
     args["data_path"] = os.path.join(sim_data_folder, 'spiral_2d.pkl')
     args["minimum_observation"] = 100
     args["time_offset"] = 0
     args["input_size"] = 2
+    args["hidden_size"] = 2
+elif args["dataset_name"] == 'zheng':
+    args["data_path"] = os.path.join(sim_data_folder, 'sim_zheng_model_hidden_True_personal_2_type_{}.pkl'
+                                     .format(distribution_mode))
+    args["time_offset"] = -10
+    args["minimum_observation"] = 4
+    args["input_size"] = 4
+    args["hidden_size"] = 8
+elif args["dataset_name"] == 'auto25':
+    args["data_path"] = os.path.join(sim_data_folder, 'sim_auto25_model_hidden_True_personal_2_type_{}.pkl'
+                                     .format(distribution_mode))
+    args["time_offset"] = 0
+    args["minimum_observation"] = 4
+    args["input_size"] = 20
+    args["hidden_size"] = 16
+elif args["dataset_name"] == 'auto50':
+    args["data_path"] = os.path.join(sim_data_folder, 'sim_auto50_model_hidden_True_personal_2_type_{}.pkl'
+                                     .format(distribution_mode))
+    args["time_offset"] = 0
+    args["minimum_observation"] = 4
+    args["input_size"] = 45
+    args["hidden_size"] = 32
 else:
     raise ValueError('')
 
@@ -260,36 +305,3 @@ for key in args:
 config_list = sorted(config_list, key=lambda x: x[0])
 for item in config_list:
     logger.info("{}: {}".format(item[0], item[1]))
-
-
-# other config
-oracle_graph_dict ={
-    'hao_true_causal': {
-        'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 0, 'hidden': 0},
-        'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
-        'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
-        'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'hidden': 0},
-        'hidden': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 1},
-    },
-    'hao_true_not_causal': {
-        'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-        'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-        'n': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-        'c': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-        'hidden': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 1},
-    },
-    'hao_false_causal': {
-        'a': {'a': 1, 'tau_p': 1, 'n': 0, 'c': 0, 'tau_o': 0},
-        'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 0},
-        'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'tau_o': 0},
-        'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'tau_o': 0},
-        'tau_o': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
-    },
-    'hao_false_not_causal': {
-        'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
-        'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
-        'n': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
-        'c': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
-        'tau_o': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
-    },
-}

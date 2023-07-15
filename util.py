@@ -1,12 +1,74 @@
+import copy
+
 from default_config import logger
 from data_preprocess.data_loader import SequentialVisitDataloader, SequentialVisitDataset, RandomSampler
 import pickle
 import os
 from torch import save, no_grad, mean, FloatTensor
 import csv
-from torch.nn import MSELoss, BCEWithLogitsLoss
 import numpy as np
 from scipy.integrate import solve_ivp
+
+
+oracle_graph_dict ={
+    'hao_true_causal': {
+        'a': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 0, 'hidden': 0},
+        'tau_p': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'hidden': 0},
+        'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 0},
+        'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'hidden': 0},
+        'hidden': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'hidden': 1},
+    },
+    'hao_false_causal': {
+        'a': {'a': 1, 'tau_p': 1, 'n': 0, 'c': 0, 'tau_o': 0},
+        'tau_p': {'a': 0, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 0},
+        'n': {'a': 0, 'tau_p': 0, 'n': 1, 'c': 1, 'tau_o': 0},
+        'c': {'a': 0, 'tau_p': 0, 'n': 0, 'c': 1, 'tau_o': 0},
+        'tau_o': {'a': 1, 'tau_p': 1, 'n': 1, 'c': 1, 'tau_o': 1},
+    },
+}
+
+
+def get_oracle_causal_graph(name_id_dict, use_hidden: bool, custom_name, true_oracle):
+    if custom_name == 'not_causal' or custom_name in oracle_graph_dict:
+        if custom_name == 'not_causal':
+            oracle_graph = {}
+            name_list = [key for key in name_id_dict]
+            if use_hidden:
+                 name_list = name_list + ['hidden']
+            for name_1 in name_list:
+                oracle_graph[name_1] = {}
+                for name_2 in name_list:
+                    oracle_graph[name_1][name_2] = 1
+        else:
+            assert custom_name in oracle_graph_dict
+            oracle_graph = oracle_graph_dict[custom_name]
+    else:
+        assert custom_name == 'use_data'
+        oracle_graph = copy.deepcopy(true_oracle)
+        if use_hidden:
+            name_list = [key for key in name_id_dict]
+            oracle_graph['hidden'] = {}
+            oracle_graph['hidden']['hidden'] = 1
+            for name in name_list:
+                oracle_graph[name]['hidden'] = 0
+                oracle_graph['hidden'][name] = 1
+
+    if len(oracle_graph) < 8:
+        logger.info('prior causal mask')
+        logger.info(oracle_graph)
+    else:
+        logger.info('prior causal mask print skip for its size')
+    bool_graph = np.zeros([len(oracle_graph), len(oracle_graph)])
+    new_dict = {key: name_id_dict[key] for key in name_id_dict}
+    if 'hidden' not in new_dict:
+        if use_hidden:
+            assert len(name_id_dict) == len(oracle_graph) - 1
+            new_dict['hidden'] = len(new_dict)
+    for cause in oracle_graph:
+        for consequence in oracle_graph[cause]:
+            idx_1, idx_2 = new_dict[cause], new_dict[consequence]
+            bool_graph[idx_1, idx_2] = oracle_graph[cause][consequence]
+    return bool_graph
 
 
 def get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation, reconstruct_input,
@@ -55,8 +117,11 @@ def save_graph(model, model_name, folder, epoch_idx, iter_idx, argument):
     connect_mat = connect_mat.to('cpu').numpy()
     logger.info('adjacency bool')
     write_content = [[constraint_type]]
-    for item in connect_mat:
-        logger.info(item > clamp_edge_threshold)
+    if len(connect_mat) < 8:
+        for item in connect_mat:
+            logger.info(item > clamp_edge_threshold)
+    else:
+        logger.info('graph print skipped for its size')
     for line in connect_mat:
         line_content = []
         for item in line:
@@ -280,3 +345,146 @@ class OracleHaoModel(object):
             }
         return return_dict
 
+
+class OracleZhengModel(object):
+    def __init__(self, hidden_type, para_dict, init_dict, time_offset, stat_dict):
+        self.hidden_type = hidden_type
+        self.treatment_feature = None
+        self.treatment_value = None
+        self.para_dict = para_dict
+        self.init_dict = init_dict
+        self.time_offset = time_offset
+        self.treatment_time = None
+        self.stat_dict = stat_dict
+        self.name_id_dict = {'a': 0, 'tau': 1, 'n': 2, 'c': 3}
+
+    def set_treatment(self, treatment_feature, treatment_time, treatment_value):
+        if not (treatment_feature is None and treatment_value is None and treatment_feature is None):
+            self.treatment_time = treatment_time - self.time_offset
+            self.treatment_feature = treatment_feature
+            self.treatment_value = treatment_value
+
+    def derivative(self, t, y):
+        assert isinstance(self.hidden_type, bool)
+        assert (self.treatment_time is None and self.treatment_value is None and self.treatment_feature is None) or \
+               (self.treatment_time is not None and self.treatment_value is not None and self.treatment_feature
+                is not None)
+
+        para = self.para_dict
+        if self.treatment_time is not None and t > self.treatment_time:
+            idx = self.name_id_dict[self.treatment_feature]
+            y[idx] = self.treatment_value
+
+        w_a_0 = para['w_a_0']
+        w_a_1 = para['w_a_1']
+        w_a_2 = para['w_a_2']
+        w_t_0 = para['w_t_0']
+        w_t_1 = para['w_t_1']
+        w_t_2 = para['w_t_2']
+        w_t_3 = para['w_t_3']
+        w_t_4 = para['w_t_4']
+        w_t_5 = para['w_t_5']
+        w_n_0 = para['w_n_0']
+        w_n_1 = para['w_n_1']
+        w_n_2 = para['w_n_2']
+        w_n_3 = para['w_n_3']
+        w_n_4 = para['w_n_4']
+        w_n_5 = para['w_n_5']
+        w_c_0 = para['w_c_0']
+        w_c_1 = para['w_c_1']
+        w_c_2 = para['w_c_2']
+        w_c_3 = para['w_c_3']
+        w_c_4 = para['w_c_4']
+        w_c_5 = para['w_c_5']
+        derivative = [
+            w_a_0 + w_a_1 * y[0] + w_a_2 * (y[0]) ** 2,
+            w_t_0 + w_t_1 * y[1] + w_t_2 * (y[1]) ** 2 + w_t_3 * y[0] + w_t_4 * (y[0]) ** 2 + w_t_5 * y[0] * y[1],
+            w_n_0 + w_n_1 * y[2] + w_n_2 * (y[2]) ** 2 + w_n_3 * y[1] + w_n_4 * (y[1]) ** 2 + w_n_5 * y[1] * y[2],
+            w_c_0 + w_c_1 * y[3] + w_c_2 * (y[3]) ** 2 + w_c_3 * y[2] + w_c_4 * (y[2]) ** 2 + w_c_5 * y[3] * y[2],
+        ]
+        if self.treatment_time is not None and t > self.treatment_time:
+            derivative[self.name_id_dict[self.treatment_feature]] = 0
+        return derivative
+
+    def inference(self, time_list):
+        init = self.init_dict
+        initial_state = [init['a'], init['tau'], init['n'], init['c']]
+
+        time_list = [item - self.time_offset for item in time_list]
+        result_list = []
+        for visit_time in time_list:
+            t_span = 0, visit_time
+            full_result = solve_ivp(self.derivative, t_span, initial_state)
+            result = full_result.y[:, -1]
+            result_list.append(result)
+
+        ordered_list = self.reorganize(result_list)
+        return ordered_list
+
+    def reorganize(self, result_list):
+        a_list = [(item[0]-self.stat_dict['a'][0])/self.stat_dict['a'][1] for item in result_list]
+        tau_list = [(item[1]-self.stat_dict['tau'][0])/self.stat_dict['tau'][1] for item in result_list]
+        n_list = [(item[2]-self.stat_dict['n'][0])/self.stat_dict['n'][1] for item in result_list]
+        c_list = [(item[3]-self.stat_dict['c'][0])/self.stat_dict['c'][1] for item in result_list]
+        return {
+            'a': np.array(a_list),
+            'c': np.array(c_list),
+            'n': np.array(n_list),
+            'tau': np.array(tau_list)
+        }
+
+
+class OracleAutoModel(object):
+    def __init__(self, hidden_type, init_dict, time_offset, stat_dict, node_num, oracle_graph):
+        self.hidden_type = hidden_type
+        self.treatment_feature = None
+        self.treatment_value = None
+        self.node_num = node_num
+        self.oracle_graph = oracle_graph
+        self.init_dict = init_dict
+        self.time_offset = time_offset
+        self.treatment_time = None
+        self.stat_dict = stat_dict
+        self.name_id_dict = {'a': 0, 'tau': 1, 'n': 2, 'c': 3}
+
+    def set_treatment(self, treatment_feature, treatment_time, treatment_value):
+        if not (treatment_feature is None and treatment_value is None and treatment_feature is None):
+            self.treatment_time = treatment_time - self.time_offset
+            self.treatment_feature = treatment_feature
+            self.treatment_value = treatment_value
+
+    def derivative(self, t, y):
+        assert isinstance(self.hidden_type, bool)
+        assert (self.treatment_time is None and self.treatment_value is None and self.treatment_feature is None) or \
+               (self.treatment_time is not None and self.treatment_value is not None and self.treatment_feature
+                is not None)
+
+
+        return derivative
+
+    def inference(self, time_list):
+        init = self.init_dict
+        initial_state = [init['a'], init['tau'], init['n'], init['c']]
+
+        time_list = [item - self.time_offset for item in time_list]
+        result_list = []
+        for visit_time in time_list:
+            t_span = 0, visit_time
+            full_result = solve_ivp(self.derivative, t_span, initial_state)
+            result = full_result.y[:, -1]
+            result_list.append(result)
+
+        ordered_list = self.reorganize(result_list)
+        return ordered_list
+
+    def reorganize(self, result_list):
+        a_list = [(item[0]-self.stat_dict['a'][0])/self.stat_dict['a'][1] for item in result_list]
+        tau_list = [(item[1]-self.stat_dict['tau'][0])/self.stat_dict['tau'][1] for item in result_list]
+        n_list = [(item[3]-self.stat_dict['n'][0])/self.stat_dict['n'][1] for item in result_list]
+        c_list = [(item[4]-self.stat_dict['c'][0])/self.stat_dict['c'][1] for item in result_list]
+        return {
+            'a': np.array(a_list),
+            'c': np.array(c_list),
+            'n': np.array(n_list),
+            'tau': np.array(tau_list)
+        }
