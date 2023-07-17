@@ -1,3 +1,5 @@
+import numpy as np
+
 if __name__ == '__main__':
     print('unit test in verification')
 from default_config import logger
@@ -114,20 +116,19 @@ class TrajectoryPrediction(Module):
             predict_value_list = []
             for i in range(len(predict_value)):
                 predict_value_list.append(squeeze(predict_value[i], dim=0))
-
-        # 输出的predict_value_list是multiplier*batch size长度的序列
-        predict_value_list = stack(predict_value_list, dim=0)
-        if self.hidden_flag:
-            predict_value_list = predict_value_list[:, :, :-1]
         return predict_value_list
 
     def loss_calculate(self, prediction_list, feature_list, mask_list, type_list):
         # 按照设计，这个函数只有在预测阶段有效，预测阶段的multiplier必须为1
         assert self.sample_multiplier == 1
-        assert len(prediction_list.shape) == 3 and prediction_list.shape[2] == self.input_size
-
         consistent_feature = self.consistent_feature
         if self.data_mode == 'uniform' and consistent_feature != 'none':
+            # 输出的predict_value_list是multiplier*batch size长度的序列
+            prediction_list = stack(prediction_list, dim=0)
+            if self.hidden_flag:
+                prediction_list = prediction_list[:, :, :-1]
+            assert len(prediction_list.shape) == 3 and prediction_list.shape[2] == self.input_size
+
             if consistent_feature == 'continuous':
                 loss_func = self.mse_loss_func
             elif consistent_feature == 'discrete':
@@ -163,20 +164,27 @@ class TrajectoryPrediction(Module):
             for predict, label, mask, type_ in zip(prediction_list, feature_list, mask_list, type_list):
                 for i in range(len(self.input_type_list)):
                     data_type = self.input_type_list[i]
+                    feature_pred, label_pred, mask_pred = predict[:, i], label[:, i], (1-mask[:, i])
                     if data_type == 'continuous':
-                        sample_loss = self.mse_loss_func(predict[:, i], label[:, i]) * (1 - mask[:, i])
+                        sample_loss = self.mse_loss_func(feature_pred, label_pred) * mask_pred
                     elif data_type == 'discrete':
-                        sample_loss = self.cross_entropy_func(predict[:, i], label[:, i]) * (1 - mask[:, i])
+                        sample_loss = self.cross_entropy_func(feature_pred, label_pred) * mask_pred
                     else:
                         raise ValueError('')
 
                     reconstruct_loss = sample_loss * (type_ == 1).float()
                     reconstruct_valid_ele_num = (reconstruct_loss != 0).sum()
-                    reconstruct_loss = reconstruct_loss.sum() / reconstruct_valid_ele_num
+                    if reconstruct_valid_ele_num > 0:
+                        reconstruct_loss = reconstruct_loss.sum() / reconstruct_valid_ele_num
+                    else:
+                        reconstruct_loss = 0
 
                     predict_loss = sample_loss * (type_ == 2).float()
                     predict_valid_ele_num = (predict_loss != 0).sum()
-                    predict_loss = predict_loss.sum() / predict_valid_ele_num
+                    if predict_valid_ele_num > 0:
+                        predict_loss = predict_loss.sum() / predict_valid_ele_num
+                    else:
+                        predict_loss = 0
 
                     loss = (reconstruct_loss + predict_loss) / 2
 
@@ -262,7 +270,8 @@ class CausalDerivative(Derivative):
         self.softmax = Softmax(dim=1)
         self.clamp_edge_threshold = clamp_edge_threshold
         self.dataset_name = dataset_name
-        self.input_type_list = input_type_list
+        self.input_type_list = unsqueeze(FloatTensor(
+            np.array([1 if item == 'continuous' else 0 for item in input_type_list])), dim=0).to(device)
         self.non_linear_mode = non_linear_mode
 
         self.treatment_idx = None
@@ -335,12 +344,10 @@ class CausalDerivative(Derivative):
         assert (self.treatment_time is None and self.treatment_idx is None and self.treatment_value is None) or \
                (self.treatment_time is not None and self.treatment_idx is not None and self.treatment_value is not None)
 
-        # 离散化离散变量的作用
-        for i in range(len(input_type_list)):
-            if input_type_list[i] == 'discrete':
-                y_hard = (inputs[:, i] > 0).float()
-                y_soft = self.sigmoid(inputs[:, i])
-                inputs[:, i] = y_hard - y_soft.detach() + y_soft
+        y_hard = (inputs > 0).float()
+        y_soft = self.sigmoid(inputs)
+        inputs_discrete = y_hard - y_soft.detach() + y_soft
+        inputs = inputs_discrete * (1-input_type_list) + inputs *  input_type_list
 
         # 当存在设定treatment时，强行赋值
         if self.treatment_time is not None and t > self.treatment_time:

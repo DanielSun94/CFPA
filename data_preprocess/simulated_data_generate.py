@@ -20,15 +20,15 @@ config_path_set = {
 
 
 def main():
-    model_name = 'auto50'
+    model_name = 'hao'
     logger.info('model: {}'.format(model_name))
-    default_save_data_folder = os.path.abspath('../resource/simulated_data')
+    default_save_data_folder = os.path.abspath('../resource/data')
     default_config_path = config_path_set[model_name]
     default_use_hidden = "True"
     default_sample_type = 'uniform'
-    default_train_sample_size = 32
-    default_valid_sample_size = 8
-    default_test_sample_size = 8
+    default_train_sample_size = 128
+    default_valid_sample_size = 128
+    default_test_sample_size = 128
     default_personalized_type = 2
     parser = argparse.ArgumentParser(description='simulate data generating')
     parser.add_argument('--config_path', type=str, default=default_config_path)

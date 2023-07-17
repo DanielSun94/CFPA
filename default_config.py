@@ -11,24 +11,23 @@ t = datetime.datetime.now()
 time = ".".join([str(t.year), str(t.month), str(t.day), str(t.hour), str(t.minute), str(t.second)])
 script_path = os.path.split(os.path.realpath(__file__))[0]
 resource_folder = os.path.join(script_path, 'resource')
-sim_data_folder = os.path.join(script_path, 'resource', 'simulated_data')
+data_folder = os.path.join(script_path, 'resource', 'data')
 adjacency_mat_folder = os.path.join(script_path, 'resource', 'adjacency_mat_folder')
 ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
 fig_save_folder = os.path.join(script_path, 'resource', 'figure')
 
-dataset = 'auto50' # 'zheng
+dataset = 'adni' # 'zheng
 hidden_flag = 'True' # False
-distribution_mode = 'uniform'
-device = 'cuda:1'
+device = 'cuda:7'
 constraint_type = 'DAG'
 model = 'ODE'
-sparse_constraint_weight = 0.08
 prior_causal_mask = 'not_causal' # hao_true_causal, not_causal use_data
 non_linear_mode = "True"
 treatment_optimize_method = 'difference' # difference min
 new_model_number = 4
 treatment_filter_threshold = 0.04
+
 
 # hao_true_lmci
 # treatment_feature = 'n'
@@ -54,8 +53,8 @@ assert model in {'ODE'}
 treatment_init_model_name = 'predict.CTP.auto50.True.DAG.20230406104408175186.99.100.model'
 
 
-if not os.path.exists(sim_data_folder):
-    os.makedirs(sim_data_folder)
+if not os.path.exists(data_folder):
+    os.makedirs(data_folder)
 if not os.path.exists(adjacency_mat_folder):
     os.makedirs(adjacency_mat_folder)
 if not os.path.exists(ckpt_folder):
@@ -83,7 +82,7 @@ default_config = {
     "reconstruct_input": "True",
     "predict_label": "True",
     'time_offset': None,
-    'distribution_mode': distribution_mode,
+    'distribution_mode': 'None',
     'hidden_flag': hidden_flag,
 
     # model config
@@ -98,7 +97,7 @@ default_config = {
     "batch_size": 128,
     "model_converge_threshold": 10**-8,
     "clamp_edge_threshold": 10**-4,
-    "learning_rate": 0.005,
+    "learning_rate": 0.001,
     "eval_iter_interval": 20,
     "eval_epoch_interval": -1,
     "device": device,
@@ -108,7 +107,7 @@ default_config = {
 
     # graph setting
     "constraint_type": constraint_type,
-    'sparse_constraint_weight': sparse_constraint_weight,
+    'sparse_constraint_weight': 0,
 
     # treatment
     'treatment_feature': treatment_feature,
@@ -131,8 +130,8 @@ default_config = {
     # augmented Lagrangian predict phase
     "init_lambda_predict": 0.0,
     "init_mu_predict": 10**-3,
-    "max_lambda_predict": 0.5,
-    "max_mu_predict": 2,
+    "max_lambda_predict": 0,
+    "max_mu_predict": 0,
     "eta_predict": 10,
     'gamma_predict': 0.9,
     'stop_threshold_predict': 10**-8,
@@ -238,48 +237,89 @@ parser.add_argument('--treatment_true_causal', help='', default=default_config['
 
 
 args = vars(parser.parse_args())
-
 if args["dataset_name"] == 'hao_true_lmci':
-    args["data_path"] = os.path.join(sim_data_folder, 'sim_hao_model_hidden_True_personal_2_type_{}.pkl'
+    distribution_mode = 'uniform'
+    args["data_path"] = os.path.join(data_folder, 'sim_hao_model_hidden_True_personal_2_type_{}.pkl'
                                      .format(distribution_mode))
     args["time_offset"] = 50
     args["minimum_observation"] = 4
     args["input_size"] = 4
     args["hidden_size"] = 8
+    args["sparse_constraint_weight"] = 0.08
+    args["max_lambda_predict"] = 0.5
+    args["max_mu_predict"] = 2
+    args["distribution_mode"] = distribution_mode
 elif args["dataset_name"] == 'hao_false_lmci':
-    args["data_path"] = os.path.join(sim_data_folder, 'sim_hao_model_hidden_False_personal_2_type_{}.pkl'
+    distribution_mode = 'uniform'
+    args["data_path"] = os.path.join(data_folder, 'sim_hao_model_hidden_False_personal_2_type_{}.pkl'
                                      .format(distribution_mode))
     args["time_offset"] = 50
     args["minimum_observation"] = 4
     args["input_size"] = 5
     args["hidden_size"] = 8
+    args["sparse_constraint_weight"] = 0.08
+    args["max_lambda_predict"] = 0.5
+    args["max_mu_predict"] = 2
+    args["distribution_mode"] = distribution_mode
 elif args["dataset_name"] == 'spiral_2d':
-    args["data_path"] = os.path.join(sim_data_folder, 'spiral_2d.pkl')
+    distribution_mode = 'uniform'
+    args["data_path"] = os.path.join(data_folder, 'spiral_2d.pkl')
     args["minimum_observation"] = 100
     args["time_offset"] = 0
     args["input_size"] = 2
     args["hidden_size"] = 2
+    args["sparse_constraint_weight"] = 0.08
+    args["max_lambda_predict"] = 0.5
+    args["max_mu_predict"] = 2
+    args["distribution_mode"] = distribution_mode
 elif args["dataset_name"] == 'zheng':
-    args["data_path"] = os.path.join(sim_data_folder, 'sim_zheng_model_hidden_True_personal_2_type_{}.pkl'
+    distribution_mode = 'uniform'
+    args["data_path"] = os.path.join(data_folder, 'sim_zheng_model_hidden_True_personal_2_type_{}.pkl'
                                      .format(distribution_mode))
     args["time_offset"] = -10
     args["minimum_observation"] = 4
     args["input_size"] = 4
     args["hidden_size"] = 8
+    args["sparse_constraint_weight"] = 2
+    args["max_lambda_predict"] = 100
+    args["max_mu_predict"] = 200
+    args["distribution_mode"] = distribution_mode
 elif args["dataset_name"] == 'auto25':
-    args["data_path"] = os.path.join(sim_data_folder, 'sim_auto25_model_hidden_True_personal_2_type_{}.pkl'
+    distribution_mode = 'uniform'
+    args["data_path"] = os.path.join(data_folder, 'sim_auto25_model_hidden_True_personal_2_type_{}.pkl'
                                      .format(distribution_mode))
     args["time_offset"] = 0
     args["minimum_observation"] = 4
     args["input_size"] = 20
     args["hidden_size"] = 16
+    args["sparse_constraint_weight"] = 2
+    args["max_lambda_predict"] = 100
+    args["max_mu_predict"] = 200
+    args["distribution_mode"] = distribution_mode
 elif args["dataset_name"] == 'auto50':
-    args["data_path"] = os.path.join(sim_data_folder, 'sim_auto50_model_hidden_True_personal_2_type_{}.pkl'
+    distribution_mode = 'uniform'
+    args["data_path"] = os.path.join(data_folder, 'sim_auto50_model_hidden_True_personal_2_type_{}.pkl'
                                      .format(distribution_mode))
     args["time_offset"] = 0
     args["minimum_observation"] = 4
     args["input_size"] = 45
     args["hidden_size"] = 32
+    args["sparse_constraint_weight"] = 2
+    args["max_lambda_predict"] = 100
+    args["max_mu_predict"] = 200
+    args["distribution_mode"] = distribution_mode
+elif args["dataset_name"] == 'adni':
+    distribution_mode = 'random'
+    args["data_path"] = os.path.join(data_folder, 'ADNI_merge_preprocessed.pkl')
+    args["time_offset"] = 0
+    args["minimum_observation"] = 2
+    args["input_size"] = 88
+    args["hidden_size"] = 32
+    args['batch_size'] = 4
+    args["sparse_constraint_weight"] = 2
+    args["max_lambda_predict"] = 100
+    args["max_mu_predict"] = 200
+    args["distribution_mode"] = distribution_mode
 else:
     raise ValueError('')
 
