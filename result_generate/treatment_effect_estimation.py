@@ -1,5 +1,5 @@
 import numpy as np
-from util import read_treatment_data
+from treatment_graph import read_treatment_data
 
 
 def main():

@@ -17,9 +17,9 @@ ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
 fig_save_folder = os.path.join(script_path, 'resource', 'figure')
 
-dataset = 'adni' # 'zheng
+dataset = 'hao_true_lmci' # 'zheng
 hidden_flag = 'True' # False
-device = 'cuda:7'
+device = 'cuda:0'
 constraint_type = 'DAG'
 model = 'ODE'
 prior_causal_mask = 'not_causal' # hao_true_causal, not_causal use_data
@@ -189,6 +189,7 @@ parser.add_argument('--model_converge_threshold', help='',
 parser.add_argument('--eval_iter_interval', help='', default=default_config['eval_iter_interval'], type=str)
 parser.add_argument('--eval_epoch_interval', help='', default=default_config['eval_epoch_interval'], type=str)
 parser.add_argument('--save_iter_interval', help='', default=default_config['save_iter_interval'], type=int)
+parser.add_argument('--log_every_iteration', help='', default='False', type=str)
 
 # graph setting
 parser.add_argument('--constraint_type', help='', default=default_config['constraint_type'], type=str)
@@ -313,9 +314,10 @@ elif args["dataset_name"] == 'adni':
     args["data_path"] = os.path.join(data_folder, 'ADNI_merge_preprocessed.pkl')
     args["time_offset"] = 0
     args["minimum_observation"] = 2
+    args["log_every_iteration"] = 'True'
     args["input_size"] = 88
     args["hidden_size"] = 32
-    args['batch_size'] = 4
+    args['batch_size'] = 32
     args["sparse_constraint_weight"] = 2
     args["max_lambda_predict"] = 100
     args["max_mu_predict"] = 200

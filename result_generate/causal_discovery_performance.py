@@ -4,8 +4,6 @@ import torch
 from default_config import ckpt_folder, args
 from predict_model_train import get_model as get_ctp_model, get_oracle_causal_graph
 from predict_model_train import get_data
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 # Linear ODE
 # 'predict.CTP.hao_true_lmci.True.sparse.20230402160017666256.18.3000.model',
@@ -43,21 +41,23 @@ def main(argument):
     dataset = argument['dataset_name']
     model_type = 'CTP'
     device = argument['device']
-    causal_mask_name = 'hao_true_causal'
+    custom_name = 'not_causal'
     argument['non_linear_mode'] = "True"
+    hidden_flag = True if argument['hidden_flag'] == 'True' else False
     model_name_list = [
-        "predict.CTP.hao_true_lmci.True.DAG.20230402160017432987.18.3000.model",
-        "predict.CTP.hao_true_lmci.True.DAG.20230402160017285169.18.3000.model",
-        "predict.CTP.hao_true_lmci.True.DAG.20230402160017293297.18.3000.model",
-        "predict.CTP.hao_true_lmci.True.DAG.20230402160017319134.18.3000.model",
-        "predict.CTP.hao_true_lmci.True.DAG.20230402160017400674.18.3000.model",
-        "predict.CTP.hao_true_lmci.True.DAG.20230402160017286170.18.3000.model",
+        'predict.CTP.adni.False.DAG.20230409050945543663.49.300.model'
+        # "predict.CTP.hao_true_lmci.True.DAG.20230402160017432987.18.3000.model",
+        # "predict.CTP.hao_true_lmci.True.DAG.20230402160017285169.18.3000.model",
+        # "predict.CTP.hao_true_lmci.True.DAG.20230402160017293297.18.3000.model",
+        # "predict.CTP.hao_true_lmci.True.DAG.20230402160017319134.18.3000.model",
+        # "predict.CTP.hao_true_lmci.True.DAG.20230402160017400674.18.3000.model",
+        # "predict.CTP.hao_true_lmci.True.DAG.20230402160017286170.18.3000.model",
     ]
 
     mat_list = []
     if model_type == 'CTP':
-        dataloader_dict, name_id_dict, _, id_type_list = get_data(argument)
-        label = get_oracle_causal_graph(causal_mask_name, name_id_dict)
+        dataloader_dict, name_id_dict, oracle, id_type_list = get_data(argument)
+        label = get_oracle_causal_graph(name_id_dict, hidden_flag, custom_name, oracle)
         for item in model_name_list:
             model_path = os.path.join(ckpt_folder, item)
             state_dict = torch.load(model_path)

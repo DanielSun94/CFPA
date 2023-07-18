@@ -15,18 +15,24 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
     constraint_type = argument['constraint_type']
     weight = argument['sparse_constraint_weight']
     device = argument['device']
+    log_every_iter = argument['log_every_iteration']
 
     assert clamp_edge_flag == 'True' or clamp_edge_flag == 'False'
+    assert log_every_iter == 'True' or log_every_iter == 'False'
+    log_every_iter = True if log_every_iter == 'True' else False
     clamp_edge_flag = True if clamp_edge_flag == 'True' else False
 
     iter_idx = 0
     # predict_performance_evaluation(model, train_dataloader, 'train', 0, 0)
     predict_performance_evaluation(model, val_loader, 'valid', 0, 0)
+    save_model(model, 'CTP', ckpt_folder, 0, 0, argument, 'predict')
     model.print_graph(0, adjacency_mat_folder)
     logger.info('--------------------start training--------------------')
     for epoch_idx in range(max_epoch):
         for batch in train_dataloader:
             iter_idx += 1
+            if log_every_iter:
+                logger.info('current iter idx: {}'.format(iter_idx))
 
             # 认为定义lamb和mu的更新频率
             graph_constraint, sparse_constraint = model.calculate_constraint()

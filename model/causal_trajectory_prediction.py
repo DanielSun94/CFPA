@@ -1,5 +1,6 @@
 import numpy as np
-
+import torch
+from sklearn.metrics import roc_auc_score
 if __name__ == '__main__':
     print('unit test in verification')
 from default_config import logger
@@ -29,8 +30,8 @@ class TrajectoryPrediction(Module):
         self.constraint = constraint
         self.time_offset = time_offset
         self.sample_multiplier = 1
-        self.dataset_name = dataset_name
         self.input_type_list = input_type_list
+        self.dataset_name = dataset_name
         self.clamp_edge_threshold = clamp_edge_threshold
         self.process_name = process_name
         self.device = device
@@ -51,11 +52,12 @@ class TrajectoryPrediction(Module):
                                  batch_first=self.batch_first, bidirectional=self.init_net_bidirectional)
         self.project_net = Linear(hidden_size, self.derivative_dim*2)
 
-
+        if self.hidden_flag:
+            input_type_list = input_type_list + ['continuous']
         self.derivative = CausalDerivative(constraint, self.derivative_dim, hidden_size, dataset_name, device,
                                            clamp_edge_threshold, input_type_list, self.hidden_flag,
                                            self.non_linear_mode)
-
+        self.sigmoid = Sigmoid()
         self.project_net.to(device)
         self.init_network.to(device)
         self.derivative.to(device)
@@ -117,6 +119,79 @@ class TrajectoryPrediction(Module):
             for i in range(len(predict_value)):
                 predict_value_list.append(squeeze(predict_value[i], dim=0))
         return predict_value_list
+
+    def performance_eval(self, prediction_list, feature_list, mask_list, type_list):
+        input_type_list = self.input_type_list
+        consistent = self.consistent_feature
+        if consistent != 'none' and input_type_list[0] == 'continuous':
+            output_dict = self.loss_calculate(prediction_list, feature_list, mask_list, type_list)
+            output_dict['auc'] = 0
+            output_dict['reconstruct_auc'] = 0
+            output_dict['predict_auc'] = 0
+            output_dict['mse'] = output_dict['loss'].detach().to('cpu').numpy()
+            output_dict['reconstruct_mse'] = output_dict['reconstruct_loss'].detach().to('cpu').numpy()
+            output_dict['predict_mse'] = output_dict['predict_loss'].detach().to('cpu').numpy()
+            return output_dict
+
+        full = {i: {'pred': [], 'label': [], 'type': input_type_list[i]} for i in range(len(input_type_list))}
+        prediction = {i: {'pred': [], 'label': [], 'type': input_type_list[i]} for i in range(len(input_type_list))}
+        reconstruct = {i: {'pred': [], 'label': [], 'type': input_type_list[i]} for i in range(len(input_type_list))}
+        for mask, pred, label, visit_type_list in zip(mask_list, prediction_list, feature_list, type_list):
+            for i, feature_type in enumerate(input_type_list):
+                assert feature_type == 'continuous' or feature_type == 'discrete'
+                for j in range(visit_type_list.shape[0]):
+                    visit_type = float(visit_type_list[j].detach().to('cpu').numpy())
+                    assert visit_type == 1 or visit_type == 2
+                    feature_mask = float(mask[j, i].detach().to('cpu').numpy())
+                    feature_label = float(label[j, i].detach().to('cpu').numpy())
+                    feature_predict = float(pred[j, i].detach().to('cpu').numpy())
+                    if feature_mask == 1:
+                        continue
+                    if visit_type == 1:
+                        prediction[i]['pred'].append(feature_predict)
+                        prediction[i]['label'].append(feature_label)
+                    if visit_type == 2:
+                        reconstruct[i]['pred'].append(feature_predict)
+                        reconstruct[i]['label'].append(feature_label)
+                    full[i]['pred'].append(feature_predict)
+                    full[i]['label'].append(feature_label)
+
+        auc, pred_auc, recons_auc, mse, pred_mse, recons_mse = [], [], [], [], [], []
+        for i in range(len(input_type_list)):
+            full_pred, full_label = FloatTensor(np.array(full[i]['pred'])), FloatTensor(np.array(full[i]['label']))
+            reconstruct_pred, reconstruct_label = \
+                FloatTensor(np.array(reconstruct[i]['pred'])), FloatTensor(np.array(reconstruct[i]['label']))
+            predict_pred, predict_label = \
+                FloatTensor(np.array(prediction[i]['pred'])), FloatTensor(np.array(prediction[i]['label']))
+            if input_type_list[i] == 'continuous':
+                mse.append(np.mean(self.mse_loss_func(full_pred, full_label).to('cpu').numpy()))
+                pred_mse.append(np.mean(self.mse_loss_func(predict_pred, predict_label).to('cpu').numpy()))
+                recons_mse.append(np.mean(self.mse_loss_func(reconstruct_pred, reconstruct_label).to('cpu').numpy()))
+            else:
+                if torch.sum(full_label) > 0:
+                    full_pred = self.sigmoid(full_pred)
+                    full_pred, full_label = full_pred.to('cpu').numpy(), full_label.to('cpu').numpy()
+                    auc.append(roc_auc_score(full_label, full_pred))
+                if torch.sum(reconstruct_label) > 0:
+                    reconstruct_pred = self.sigmoid(reconstruct_pred)
+                    reconstruct_pred, reconstruct_label = \
+                        reconstruct_pred.to('cpu').numpy(), reconstruct_label.to('cpu').numpy()
+                    recons_auc.append(roc_auc_score(reconstruct_label, reconstruct_pred))
+                if torch.sum(predict_label) > 0:
+                    predict_pred = self.sigmoid(predict_pred)
+                    predict_pred, predict_label = predict_pred.to('cpu').numpy(), predict_label.to('cpu').numpy()
+                    pred_auc.append(roc_auc_score(predict_label, predict_pred))
+
+        auc = np.mean(auc)
+        pred_auc = np.mean(pred_auc)
+        recons_auc = np.mean(recons_auc)
+        mse = np.mean(mse)
+        pred_mse = np.mean(pred_mse)
+        recons_mse = np.mean(recons_mse)
+        output_dict = {'auc': auc, 'reconstruct_auc': recons_auc, 'predict_auc': pred_auc, 'mse': mse,
+                       'reconstruct_mse': recons_mse, 'predict_mse': pred_mse}
+        return output_dict
+
 
     def loss_calculate(self, prediction_list, feature_list, mask_list, type_list):
         # 按照设计，这个函数只有在预测阶段有效，预测阶段的multiplier必须为1
@@ -344,9 +419,10 @@ class CausalDerivative(Derivative):
         assert (self.treatment_time is None and self.treatment_idx is None and self.treatment_value is None) or \
                (self.treatment_time is not None and self.treatment_idx is not None and self.treatment_value is not None)
 
-        y_hard = (inputs > 0).float()
-        y_soft = self.sigmoid(inputs)
-        inputs_discrete = y_hard - y_soft.detach() + y_soft
+        # y_hard = (inputs > 0).float()
+        # y_soft = self.sigmoid(inputs)
+        # inputs_discrete = y_hard - y_soft.detach() + y_soft
+        inputs_discrete = self.sigmoid(inputs)
         inputs = inputs_discrete * (1-input_type_list) + inputs *  input_type_list
 
         # 当存在设定treatment时，强行赋值

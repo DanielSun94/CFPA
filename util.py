@@ -1,5 +1,7 @@
 import copy
 
+import torch
+
 from default_config import logger
 from data_preprocess.data_loader import SequentialVisitDataloader, SequentialVisitDataset, RandomSampler
 import pickle
@@ -229,31 +231,52 @@ class LagrangianMultiplierStateUpdater(object):
 
 
 def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=None, iter_idx=None):
+    predict_list, input_label_list, input_mask_list, input_type_list = [], [], [], []
     with no_grad():
-        loss_list = []
-        pred_loss_list = []
-        reconstruct_loss_list = []
+        mse_list, mse_pred_list, mse_recons_list, auc_list, auc_pred_list, auc_recons_list = [], [], [], [], [], []
         for batch in loader:
             input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
             label_mask_list, label_type_list = batch[6], batch[7]
             predict_value_list = model(input_list, label_time_list)
-            output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list, label_type_list)
-            loss_list.append(output_dict['loss'])
-            reconstruct_loss_list.append(output_dict['reconstruct_loss'])
-            pred_loss_list.append(output_dict['predict_loss'])
-        loss = mean(FloatTensor(loss_list)).item()
-        prediction_loos = mean(FloatTensor(pred_loss_list)).item()
-        recons_loss = mean(FloatTensor(reconstruct_loss_list)).item()
+            for container, info in zip([predict_list, input_label_list, input_mask_list, input_type_list],
+                                       [predict_value_list, label_feature_list, label_mask_list, label_type_list]):
+                for item in info:
+                    container.append(item)
+
+        output_dict = model.performance_eval(predict_list, input_label_list, input_mask_list, input_type_list)
+        mse_list.append(output_dict['mse'])
+        mse_pred_list.append(output_dict['predict_mse'])
+        mse_recons_list.append(output_dict['reconstruct_mse'])
+        auc_list.append(output_dict['auc'])
+        auc_pred_list.append(output_dict['predict_auc'])
+        auc_recons_list.append(output_dict['reconstruct_auc'])
+
+        auc, mse, pred_auc, pred_mse, recons_auc, recons_mse = 0, 0, 0, 0, 0, 0
+        if len(mse_list) > 0:
+            mse = np.mean(mse_list)
+        if len(mse_pred_list) > 0:
+            pred_mse = np.mean(mse_pred_list)
+        if len(mse_recons_list) > 0:
+            recons_mse = np.mean(mse_recons_list)
+        if len(auc_list) > 0:
+            auc = np.mean(auc_list)
+        if len(auc_pred_list) > 0:
+            pred_auc = np.mean(auc_pred_list)
+        if len(mse_list) > 0:
+            recons_auc = np.mean(auc_recons_list)
         graph_constraint, sparse_constraint = model.calculate_constraint()
         graph_constraint = graph_constraint.item()
         sparse_constraint = sparse_constraint.item()
     if epoch_idx is not None:
-        logger.info('iter: {:>4d}, epoch: {:>3d}, {:>5s}. f_l: {:>4.4}, p_l: {:>4.4f}, r_l: {:>4.4f}, g_l: {:>8.8f}, '
-                    's_l: {:>8.8f}'.format(iter_idx, epoch_idx, loader_fraction, loss, prediction_loos, recons_loss,
-                                           graph_constraint, sparse_constraint))
+        logger.info('iter: {:>4d}, epoch: {:>3d}, {:>5s}. f_m: {:>4.4}, p_m: {:>4.4f}, r_m: {:>4.4f}, '
+                    'f_a: {:>4.4}, p_a: {:>4.4f}, r_a: {:>4.4f}, g_l: {:>8.8f}, '
+                    's_l: {:>8.8f}'.format(iter_idx, epoch_idx, loader_fraction, mse, pred_mse, recons_mse, auc,
+                                           pred_auc, recons_auc, graph_constraint, sparse_constraint))
     else:
-        logger.info('final, {:>5s}. f_l: {:>4.4}, p_l: {:>4.4f}, r_l: {:>4.4f}, g_l: {:>8.8f}, s_l: {:>8.8f}'
-            .format(loader_fraction, loss, prediction_loos, recons_loss, graph_constraint, sparse_constraint))
+        logger.info('final {:>5s}. f_m: {:>4.4}, p_m: {:>4.4f}, r_m: {:>4.4f}, '
+                    'f_a: {:>4.4}, p_a: {:>4.4f}, r_a: {:>4.4f}, g_l: {:>8.8f}, '
+                    's_l: {:>8.8f}'.format(loader_fraction, mse, pred_mse, recons_mse, auc,
+                                           pred_auc, recons_auc, graph_constraint, sparse_constraint))
 
 
 class OracleHaoModel(object):
