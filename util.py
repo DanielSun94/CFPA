@@ -30,12 +30,12 @@ oracle_graph_dict ={
 }
 
 
-def get_oracle_causal_graph(name_id_dict, use_hidden: bool, custom_name, true_oracle):
+def get_oracle_causal_graph(name_id_dict, use_hidden: str, custom_name, true_oracle):
     if custom_name == 'not_causal' or custom_name in oracle_graph_dict:
         if custom_name == 'not_causal':
             oracle_graph = {}
             name_list = [key for key in name_id_dict]
-            if use_hidden:
+            if use_hidden == 'True':
                  name_list = name_list + ['hidden']
             for name_1 in name_list:
                 oracle_graph[name_1] = {}
@@ -47,7 +47,7 @@ def get_oracle_causal_graph(name_id_dict, use_hidden: bool, custom_name, true_or
     else:
         assert custom_name == 'use_data'
         oracle_graph = copy.deepcopy(true_oracle)
-        if use_hidden:
+        if use_hidden == 'True':
             name_list = [key for key in name_id_dict]
             oracle_graph['hidden'] = {}
             oracle_graph['hidden']['hidden'] = 1
@@ -63,7 +63,7 @@ def get_oracle_causal_graph(name_id_dict, use_hidden: bool, custom_name, true_or
     bool_graph = np.zeros([len(oracle_graph), len(oracle_graph)])
     new_dict = {key: name_id_dict[key] for key in name_id_dict}
     if 'hidden' not in new_dict:
-        if use_hidden:
+        if use_hidden == 'True':
             assert len(name_id_dict) == len(oracle_graph) - 1
             new_dict['hidden'] = len(new_dict)
     for cause in oracle_graph:
@@ -281,7 +281,8 @@ def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=Non
 
 class OracleHaoModel(object):
     def __init__(self, hidden_type, para_dict, init_dict, time_offset, stat_dict):
-        self.hidden_type = hidden_type
+        assert hidden_type == 'True' or hidden_type == "False"
+        self.hidden_type = True if hidden_type == 'True' else False
         self.treatment_feature = None
         self.treatment_value = None
         self.para_dict = para_dict
@@ -389,7 +390,6 @@ class OracleZhengModel(object):
             self.treatment_value = treatment_value
 
     def derivative(self, t, y):
-        assert isinstance(self.hidden_type, bool)
         assert (self.treatment_time is None and self.treatment_value is None and self.treatment_feature is None) or \
                (self.treatment_time is not None and self.treatment_value is not None and self.treatment_feature
                 is not None)
@@ -470,10 +470,10 @@ class OracleAutoModel(object):
         self.stat_dict = stat_dict
         self.name_id_dict = {'node_{}'.format(i): i for i in range(node_num)}
         self.oracle_graph = self.get_oracle()
-        assert hidden_type == 'True' or hidden_type == True
+        assert hidden_type == 'False' or hidden_type == False
 
     def get_oracle(self):
-        oracle_graph = pickle.load(open(os.path.abspath('./resource/simulated_data/auto_{}_graph.pkl'.
+        oracle_graph = pickle.load(open(os.path.abspath('./resource/data/auto_{}_graph.pkl'.
                                                         format(self.node_num)), 'rb'))
         return oracle_graph
 
@@ -484,7 +484,6 @@ class OracleAutoModel(object):
             self.treatment_value = treatment_value
 
     def derivative(self, t, y):
-        assert isinstance(self.hidden_type, bool)
         assert (self.treatment_time is None and self.treatment_value is None and self.treatment_feature is None) or \
                (self.treatment_time is not None and self.treatment_value is not None and self.treatment_feature
                 is not None)

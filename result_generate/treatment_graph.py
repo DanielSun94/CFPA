@@ -20,111 +20,97 @@ plt.rc('figure', titlesize=6)  # fontsize of the figure title
 color_pallete = sns.color_palette(palette='Accent')
 
 
-def main():
-    # sample_id = 'test_138'
-    # data_name = 'hao_true_lmci,True,n,52,0.csv'
-    data_name = 'zheng,False,n,0,0.csv'
-
-    if 'hao' in data_name:
-        sample_id = 'test_138'
-        hidden = True
-        data_set = data_name.split(',')[0]
-        start_time = 50
-        treat_time = 52
-        end_time = 56
-        if hidden:
-            feature_list = ['a', 'tau_p', 'n', 'c']
-        else:
-            feature_list = ['a', 'tau_p', 'tau_o', 'n', 'c']
-    elif 'zheng' in data_name:
-        sample_id = 'test_138'
-        data_set = data_name.split(',')[0]
-        start_time = -10
-        treat_time = 0
-        end_time = 20
-        feature_list = ['a', 'tau', 'n', 'c']
-    elif 'auto25' in data_name:
-        sample_id = 'test_64'
-        data_set = data_name.split(',')[0]
-        start_time = 0
-        treat_time = 1
-        end_time = 2
-        feature_list = ['node_i'.format(i) for i in range(5, 25)]
-    elif 'auto50' in data_name:
-        sample_id = 'test_64'
-        data_set = data_name.split(',')[0]
-        start_time = 0
-        treat_time = 1
-        end_time = 2
-        feature_list = ['node_i'.format(i) for i in range(5, 50)]
-    else:
-        raise ValueError('')
-
+def read_data(data_name, sample_id, feature_list):
     data, time = read_treatment_data(data_name, feature_list)
     plot_data = data[sample_id]
-
     model_name_list = []
-    # for key in plot_data:
-    #     if 'treatment' in key:
-    #         model_name_list.append(key)
-    # model_name_list = [key for key in plot_data]
-    # model_name_list = ['NGM_treatment', 'oracle_treatment', 'NODE_treatment', 'CTP_treatment', 'LinearODE_treatment' ]
-    # model_name_list = ['oracle', 'CTP', 'NGM', 'NODE', 'LinearODE', 'CF-ODE']
-    model_name_list = ['oracle', 'CTP']
-    sorted(model_name_list)
+    for key in plot_data:
+        if not ('origin' in key):
+            model_name_list.append(key)
+    return plot_data, model_name_list
+
+
+def main():
+    sample_id = 'test_138'
+    hao_feature_list = ['a', 'tau_p', 'n', 'c']
+    zheng_feature_list = ['a', 'tau', 'n', 'c']
+    hao_data, hao_model_list = \
+        read_data('hao_true_lmci,True,n,52,0,accept.csv', sample_id, hao_feature_list)
+    zheng_data, zheng_model_list = \
+        read_data('zheng,False,n,0,0,accept.csv', sample_id, zheng_feature_list)
+
+    hao_model_list = sorted(hao_model_list)
+    zheng_model_list = sorted(zheng_model_list)
+    assert len(hao_model_list) == len(zheng_model_list)
+    for i in range(len(hao_model_list)):
+        assert hao_model_list[i] == zheng_model_list[i]
+    model_name_list = hao_model_list
+
     # model_name_list = ['oracle_treatment', 'model_2_treatment']
     print('order of model names: {}'.format(model_name_list))
-    # treatment_effect_estimation(start_time, end_time, time, data, 'oracle_treatment', 'model_1_treatment')
-    figure_plot(start_time, end_time, treat_time, time, plot_data, model_name_list, feature_list, data_set, sample_id)
 
 
-def figure_plot(start_time, end_time, treat_time, time, plot_data, model_name_list, feature_list, data_set, sample_id):
-    fig, axs = plt.subplots(1, 4, figsize=[8.5, 2], dpi=150)
-    for i, feature in enumerate(feature_list):
+    fig, axs = plt.subplots(2, 4, figsize=[7.5, 3.5], dpi=300)
+    hao_start_time = 50
+    hao_treat_time = 52
+    hao_end_time = 56
+    zheng_start_time = -10
+    zheng_treat_time = 0
+    zheng_end_time = 10
+    hao_time_list = [0.05 * i * (hao_end_time - hao_start_time) + hao_start_time + 0.4 for i in range(20)]
+    zheng_time_list = [0.05 * i * (zheng_end_time - zheng_start_time) + zheng_start_time + 1 for i in range(20)]
+    for i in range(4):
+        hao_feature = hao_feature_list[i]
+        zheng_feature = zheng_feature_list[i]
         for j, model_name in enumerate(model_name_list):
-            value = plot_data[model_name][feature]['mean']
-            # max_ = plot_data[model_name][feature]['max']
-            # min_ = plot_data[model_name][feature]['min']
-            axs[i].plot(time, value, label=model_name, color=color_pallete[j])
-            # axs[0][i].fill_between(time, min_, max_, interpolate=True, alpha=0.2, color=color_pallete[j])
-        axs[i].set_title('Hao model   '+feature)
-        # # axs[0][i].legend()
-        # axs[0][i].set_ylim(-4, 0)
-        # axs[0][i].set_yticks([-4, 0])
-        axs[i].tick_params(axis='both', which='major', pad=0)
-        axs[i].set_xlim(start_time, end_time)
-        axs[i].set_xticks([treat_time])
-        axs[i].grid(color = 'red', linestyle = '--', linewidth = 0.25)
-            # ax.set_xlabel('time')
-        axs[i].set_xlabel('age')
+            zheng_value = zheng_data[model_name][zheng_feature]['mean']
+            hao_value = hao_data[model_name][hao_feature]['mean']
 
-    axs[0].set_ylabel('normalized value')
-    axs[2].legend(bbox_to_anchor=(1.5, 1.3), ncol=6)
+            axs[0][i].plot(hao_time_list, hao_value, label=model_name, color=color_pallete[j])
+            axs[1][i].plot(zheng_time_list, zheng_value, label=model_name, color=color_pallete[j])
 
-    axs[0].set_ylim(-3, 0)
-    axs[0].set_yticks([-3, 0])
-    axs[1].set_ylim(-2, 2)
-    axs[1].set_yticks([-2, 2])
-    axs[2].set_ylim(-5, 2)
-    axs[2].set_yticks([-5, 2])
-    axs[3].set_ylim(-4, 3)
-    axs[3].set_yticks([-4, 3])
+        axs[0][i].set_title('Hao ' + hao_feature)
+        axs[0][i].tick_params(axis='both', which='major', pad=0)
+        axs[0][i].set_xlim(hao_start_time, hao_end_time)
+        axs[0][i].set_xticks([hao_start_time, hao_treat_time, hao_end_time])
+        axs[0][i].grid(color='red', linestyle='--', linewidth=0.5)
+        axs[0][i].set_xlabel('time')
+        axs[0][i].set_xlabel('age')
 
-    # axs[1][0].set_yticks([])
-    # axs[1][0].set_xticks([])
-    # axs[1][1].set_yticks([])
-    # axs[1][1].set_xticks([])
-    # axs[1][2].set_yticks([])
-    # axs[1][2].set_xticks([])
-    # axs[1][3].set_yticks([])
-    # axs[1][3].set_xticks([])
-    #
-    # plt.figlegend(line_labels, loc='lower center', borderaxespad=0.1, ncol=6, labelspacing=0.,
-    #               prop={'size': 13})  # bbox_to_anchor=(0.5, 0.0), borderaxespad=0.1,
+        axs[1][i].set_title('Zheng ' + zheng_feature)
+        axs[1][i].tick_params(axis='both', which='major', pad=0)
+        axs[1][i].set_xlim(zheng_start_time, zheng_end_time)
+        axs[1][i].set_xticks([zheng_start_time, zheng_treat_time, zheng_end_time])
+        axs[1][i].grid(color='red', linestyle='--', linewidth=0.5)
+        axs[1][i].set_xlabel('time')
+        axs[1][i].set_xlabel('DPS')
 
-    # plt.tight_layout()
+    axs[0][0].set_ylabel('normalized value')
+    # axs[0][0].legend(bbox_to_anchor=(4, 1.4), ncol=7)
+    axs[0][0].set_ylim(-3, 1)
+    axs[0][0].set_yticks([-3, 1])
+    axs[0][1].set_ylim(-2, 0)
+    axs[0][1].set_yticks([-2, 0])
+    axs[0][2].set_ylim(-5, 0)
+    axs[0][2].set_yticks([-5, 0])
+    axs[0][3].set_ylim(-3, 3)
+    axs[0][3].set_yticks([-3, 3])
+    axs[1][0].set_ylabel('normalized value')
+    axs[1][0].set_ylim(-2, 4)
+    axs[1][0].set_yticks([-2, 4])
+    axs[1][1].set_ylim(-2, 2)
+    axs[1][1].set_yticks([-2, 2])
+    axs[1][2].set_ylim(-2, 1)
+    axs[1][2].set_yticks([-2, 1])
+    axs[1][3].set_ylim(-3, 3)
+    axs[1][3].set_yticks([-3, 3])
+
+    handles, labels = axs[0][0].get_legend_handles_labels()
+    fig.tight_layout()
+    plt.figlegend(handles, labels, loc="upper center", bbox_to_anchor=(0.55, 1.05), ncol=7, labelspacing=0.2)
     plt.show()
-    fig.savefig(os.path.join(fig_save_folder, 'treatment.{}.{}.svg').format(data_set, sample_id), bbox_inches='tight')
+    fig.savefig(os.path.join(fig_save_folder, 'treatment.{}.svg').format(sample_id), bbox_inches='tight')
+
 
 
 def read_treatment_data(data_name, feature_list):

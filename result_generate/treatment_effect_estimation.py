@@ -3,8 +3,11 @@ from treatment_graph import read_treatment_data
 
 
 def main():
-    # data_name = 'zheng,False,n,0,0.csv'
-    data_name = 'auto50,True,node_15,1,1.csv'
+    # data_name = 'auto50,False,node_15,1,1.csv'
+    data_name = 'zheng,False,n,0,0.csv'
+    # data_name = 'auto25,False,node_15,1,1.csv'
+    # data_name = 'hao_true_lmci,True,n,52,0,accept.csv'
+
     if 'hao' in data_name:
         hidden = True
         treat_time = 52
@@ -16,8 +19,8 @@ def main():
             feature_list = ['a', 'tau_p', 'tau_o', 'n', 'c']
     elif 'zheng' in data_name:
         treat_time = 0
-        middle_time = 10
-        end_time = 20
+        middle_time = 5
+        end_time = 10
         feature_list = ['a', 'tau', 'n', 'c']
     elif 'auto25' in data_name:
         treat_time = 1
@@ -88,6 +91,8 @@ def treatment_effect_estimation(treat_time, middle_time, end_time, time, reorgan
             difference_dict[model_name][feature] = [near, far, full]
 
     for model_name in difference_dict:
+        if 'origin' in model_name:
+            continue
         near_loss_sum, far_loss_sum, full_loss_sum = 0, 0, 0
         for feature in difference_dict[model_name]:
             p_near, p_far, p_full = difference_dict[model_name][feature]
@@ -102,8 +107,8 @@ def treatment_effect_estimation(treat_time, middle_time, end_time, time, reorgan
         near_loss_sum /= len(difference_dict[model_name])
         far_loss_sum /= len(difference_dict[model_name])
         full_loss_sum /= len(difference_dict[model_name])
-        print('Model: {}, Near RMSE: {}, Far RMSE: {}, Full RMSE: {}'.format(model_name, near_loss_sum,
-                                                                             far_loss_sum, full_loss_sum))
+        print('Model: {}, Full RMSE: {}, Near RMSE: {}, Far RMSE: {}'.format(model_name, full_loss_sum,
+                                                                             near_loss_sum, far_loss_sum))
 
 
 if __name__ == '__main__':

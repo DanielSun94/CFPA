@@ -31,7 +31,7 @@ class TreatmentEffectEstimator(Module):
         self.id_type_list = id_type_list
         self.optimize_method = optimize_method
         self.process_name = process_name
-        self.filter_set = set()
+        # self.filter_set = set()
         self.models = self.build_models(new_model_number, oracle_graph)
 
     def build_models(self, new_model_number, oracle_graph):
@@ -71,8 +71,9 @@ class TreatmentEffectEstimator(Module):
         models = self.models
         predict_value_list = []
         for i, model in enumerate(models):
-            if i in self.filter_set:
-                predict_value_list.append([])
+            # if i in self.filter_set:
+            #     predict_value_list.append([])
+            #     continue
             predict_value = model(concat_input_list, label_time_list)
             predict_value_list.append(predict_value)
         return predict_value_list
@@ -82,8 +83,6 @@ class TreatmentEffectEstimator(Module):
         loss = 0
         assert len(models) == len(predict_value_list)
         for i, (model, predict_value) in enumerate(zip(models, predict_value_list)):
-            if i in self.filter_set:
-                continue
             output_dict = model.loss_calculate(predict_value, label_feature_list, label_mask_list, label_type_list)
             loss = output_dict['loss'] + loss
         loss = loss / len(models)
@@ -93,7 +92,7 @@ class TreatmentEffectEstimator(Module):
         optimize_type = self.optimize_method
         assert optimize_type == 'max' or optimize_type == 'difference'
         if optimize_type == 'difference':
-            predict_value_list = squeeze(stack(predict_value_list), dim=2)
+            predict_value_list = squeeze(stack([stack(item) for item in predict_value_list]), dim=2)
             predict_value_list = permute(predict_value_list, [1, 0, 2])
             treatment_loss = cdist(predict_value_list, predict_value_list)
             treatment_loss = treatment_loss.mean()

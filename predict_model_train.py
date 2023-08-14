@@ -38,7 +38,11 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
             graph_constraint, sparse_constraint = model.calculate_constraint()
             lamb, mu = multiplier_updater.update(model, iter_idx)
             if argument['constraint_type'] == 'DAG':
-                constraint = lamb * graph_constraint + 0.5 * mu * graph_constraint**2 + sparse_constraint * weight
+                sparse_warm = argument['sparse_warm']
+                if sparse_warm < iter_idx:
+                    constraint = lamb * graph_constraint + 0.5 * mu * graph_constraint**2 + sparse_constraint * weight
+                else:
+                    constraint = sparse_constraint * weight
             elif argument['constraint_type'] == 'sparse':
                 constraint = sparse_constraint * weight
             elif argument['constraint_type'] == 'none':

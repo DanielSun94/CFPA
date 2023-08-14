@@ -12,7 +12,6 @@ def main(argument):
     assert argument['predict_label'] == "True" or argument['predict_label'] == "False"
 
     device = argument['device']
-    hidden_flag = True if argument['hidden_flag'] == 'True' else False
     mask_tag = argument['mask_tag']
     minimum_observation = argument['minimum_observation']
     batch_size = argument['batch_size']
@@ -25,19 +24,52 @@ def main(argument):
     t_time = argument['treatment_time']
     obs_time = argument['treatment_observation_time']
     t_value = argument['treatment_value']
-    use_hidden = True if argument['hidden_flag'] == 'True' else False
     # constraint = argument['constraint_type']
 
-    inference_model_name_dict = {
-        # 'CTP': ('treatment.TEP.zheng.False.20230406084817647020.3.40.model', False),
-        'CTP': ('treatment.TEP.auto50.True.20230406105220826230.20.20.model', False)
-        # 'CTP-True': ('treatment.TEP.hao_true_lmci.True.20230404124633020107.0.0.model', True),
-        # 'CTP': ('treatment.TEP.hao_true_lmci.True.20230404123554677496.0.20.model', False),
-        # 'LinearODE': ('treatment.TEP.hao_true_lmci.True.20230404100400203503.1.300.model', False),
-        # 'NGM': ('treatment.TEP.hao_true_lmci.True.20230404100400220765.1.300.model', False),
-        # 'NODE': ('treatment.TEP.hao_true_lmci.True.20230404101831434229.0.20.model', False),
-        # 'CF-ODE': ('treatment.TEP.hao_true_lmci.True.20230404100400182225.1.300.model', False),
-    }
+    # hao
+    if dataset_name == 'hao_true_lmci':
+        inference_model_name_dict = {
+            'LODE': ('treatment.TEP.hao_true_lmci.True.20230426050205000579.0.0.model', False),
+            'CTP': ('treatment.TEP.hao_true_lmci.True.20230426050204978059.0.0.model', False),
+            'NODE': ('treatment.TEP.hao_true_lmci.True.20230426050204991342.0.0.model', False),
+            'TE-CDE': ('treatment.TEP.hao_true_lmci.True.20230426063429908071.0.0.model', False),
+            'CF-ODE': ('treatment.TEP.hao_true_lmci.True.20230426050204991414.0.0.model', False),
+            'NGM': ('treatment.TEP.hao_true_lmci.True.20230426050204989739.0.0.model', False),
+        }
+        use_hidden = "True"
+    elif dataset_name == 'zheng':
+        inference_model_name_dict = {
+            'LODE': ('treatment.TEP.zheng.False.20230425045910181387.0.0.model', False),
+            'CTP': ('treatment.TEP.zheng.False.20230426095624827475.0.0.model', False),
+            'NODE': ('treatment.TEP.zheng.False.20230425045910207057.0.0.model', False),
+            'TE-CDE': ('treatment.TEP.zheng.False.20230426113604097993.0.0.model', False),
+            'CF-ODE': ('treatment.TEP.zheng.False.20230426113604591044.0.0.model', False),
+            'NGM': ('treatment.TEP.zheng.False.20230425045910261224.0.0.model', False),
+        }
+        use_hidden = "False"
+    elif dataset_name == 'auto25':
+        inference_model_name_dict = {
+            'LODE': ('treatment.TEP.auto25.False.20230425045910068283.19.1560.model', False),
+            'CTP': ('treatment.TEP.auto25.False.20230425045910033893.8.640.model', False),
+            'NODE': ('treatment.TEP.auto25.False.20230425045910040216.7.620.model', False),
+            'TE-CDE': ('treatment.TEP.auto25.False.20230425045910040216.0.0.model', False),
+            'CF-ODE': ('treatment.TEP.auto25.False.20230425045910040216.3.300.model', False),
+            'NGM': ('treatment.TEP.auto25.False.20230425045910055872.8.680.model', False),
+        }
+        use_hidden = "False"
+    elif dataset_name == 'auto50':
+        inference_model_name_dict = {
+            'LODE': ('treatment.TEP.auto50.False.20230425045910112885.11.900.model', False),
+            'CTP': ('treatment.TEP.auto50.False.20230425045910229400.3.280.model', False),
+            'NODE': ('treatment.TEP.auto50.False.20230425045910042825.3.240.model', False),
+            'TE-CDE': ('treatment.TEP.auto50.False.20230425045910042825.1.120.model', False),
+            'CF-ODE': ('treatment.TEP.auto50.False.20230425045910042825.0.0.model', False),
+            'NGM': ('treatment.TEP.auto50.False.20230425045910078953.3.280.model', False),
+        }
+        use_hidden = "False"
+    else:
+        raise ValueError('')
+
 
     dataloader_dict, name_id_dict, oracle_graph, id_type_list, stat_dict = \
         get_data_loader(dataset_name, data_path, batch_size, mask_tag, minimum_observation,
@@ -52,10 +84,10 @@ def main(argument):
     time_list = np.array([(i + 1) * 0.05 * (obs_time - time_offset) + time_offset for i in range(20)])
 
     oracle_treatment_dataset = generate_oracle_behavior(
-        hidden_flag, test_dataset, dataset_name, stat_dict, t_feature, t_time, time_list, origin_t_value, time_offset,
+        use_hidden, test_dataset, dataset_name, stat_dict, t_feature, t_time, time_list, origin_t_value, time_offset,
         oracle_graph)
     oracle_original_dataset = generate_oracle_behavior(
-        hidden_flag, test_dataset, dataset_name, stat_dict, None, None, time_list, None, time_offset,
+        use_hidden, test_dataset, dataset_name, stat_dict, None, None, time_list, None, time_offset,
         oracle_graph)
 
     data_dict = dict()
@@ -68,21 +100,21 @@ def main(argument):
             oracle_graph = get_oracle_causal_graph(name_id_dict, use_hidden, 'not_causal', oracle_graph)
 
         model_treatment_dataset = generate_model_behavior(
-            hidden_flag, test_dataset, dataset_name, t_feature, t_time, time_list, t_value, t_idx, model_name,
+            use_hidden, test_dataset, dataset_name, t_feature, t_time, time_list, t_value, t_idx, model_name,
             model_file, oracle_graph, id_type_list, name_id_dict, device, argument
         )
-        model_origin_dataset = generate_model_behavior(
-            hidden_flag, test_dataset, dataset_name, None, None, time_list, None, None, model_name,
-            model_file, oracle_graph, id_type_list, name_id_dict, device, argument
-        )
+        # model_origin_dataset = generate_model_behavior(
+        #     use_hidden, test_dataset, dataset_name, None, None, time_list, None, None, model_name,
+        #     model_file, oracle_graph, id_type_list, name_id_dict, device, argument
+        # )
         data_dict[model_name] = model_treatment_dataset
-        data_dict[model_name + '_origin'] = model_origin_dataset
+        # data_dict[model_name + '_origin'] = model_origin_dataset
     data_dict['oracle'] = oracle_treatment_dataset
     data_dict['oracle_origin'] = oracle_original_dataset
 
     fused_dict = fuse_result(data_dict, time_list)
     file_name = "{},{},{},{},{}.csv"\
-        .format(dataset_name, hidden_flag, t_feature, t_time, origin_t_value)
+        .format(dataset_name, use_hidden, t_feature, t_time, origin_t_value)
     save_result(fused_dict, file_name)
 
 def save_result(fused_dict, file_name):
@@ -116,12 +148,12 @@ def save_result(fused_dict, file_name):
 
 def fuse_result(data_dict, time_list):
     result_dict = dict()
-    for i in range(len(data_dict['oracle_origin'][1])):
-        assert data_dict['oracle_origin'][1][i] not in result_dict
-        result_dict[data_dict['oracle_origin'][1][i]] = {'oracle_origin': data_dict['oracle_origin'][0][i]}
-    for i in range(len(data_dict['oracle_origin'][1])):
+    for i in range(len(data_dict['oracle'][1])):
+        assert data_dict['oracle'][1][i] not in result_dict
+        result_dict[data_dict['oracle'][1][i]] = {'oracle': data_dict['oracle'][0][i]}
+    for i in range(len(data_dict['oracle'][1])):
         for key in data_dict:
-            if key == 'oracle_origin':
+            if key == 'oracle':
                 continue
             result_dict[data_dict[key][1][i]][key] = data_dict[key][0][i]
             result_dict[data_dict[key][1][i]][key] = data_dict[key][0][i]
@@ -163,17 +195,14 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
         non_linear = 'False'
     else:
         non_linear = "True"
-    if 'CTP' in model_name:
-        new_model_number = argument['treatment_new_model_number']
-    else:
-        new_model_number = 1
+    new_model_number = argument['treatment_new_model_number']
     batch_size = dataloader.batch_size
     process_name = argument['process_name']
     optimize_method = argument['treatment_optimize_method']
     sample_multiplier = argument['treatment_sample_multiplier']
     model_args = {
         'init_model_name': None,
-        'hidden_flag': argument['hidden_flag'],
+        'hidden_flag': hidden_flag,
         'input_size': argument['input_size'],
         'distribution_mode': argument['distribution_mode'],
         'batch_first': argument['batch_first'],
@@ -196,7 +225,7 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
     model.to(device)
 
     assert argument['hidden_flag'] == 'True' or argument['hidden_flag'] == "False"
-    assert True if argument['hidden_flag'] == "True" else False == hidden_flag
+    # assert True if argument['hidden_flag'] == "True" else False == hidden_flag
     # 注释掉是因为保存的是state dict，以下信息均无效了
     # assert trained_model.new_model_number == model.new_model_number
     # assert trained_model.models[0].hidden_flag == model.models[0].hidden_flag
@@ -222,7 +251,7 @@ def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_fea
         for batch in dataloader:
             input_list, sample_id_list = batch[0], batch[10]
             prediction = model.predict(input_list, time_list)
-            prediction = stack(prediction, dim=0)
+            prediction = stack([stack(item) for item in prediction], dim=0)
             prediction_list.append(reshape(prediction, (model_num, sample_multiplier, -1,
                                                         prediction.shape[2], prediction.shape[3])))
             sample_ids.append(sample_id_list)

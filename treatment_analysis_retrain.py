@@ -1,4 +1,3 @@
-import torch
 from torch import no_grad, FloatTensor, mean
 from default_config import args, logger, ckpt_folder
 from util import get_data_loader, save_model, get_oracle_causal_graph
@@ -50,37 +49,33 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
                 loss.backward()
                 optimizer_treatment.step()
 
-            if treatment_warm_iter == iter_idx:
-                filter_set = remove_module(model, val_loader, argument['treatment_filter_threshold'])
-                model.filter_set = model.filter_set.union(filter_set)
-
             if treatment_warm_iter < iter_idx:
                 flag = not flag
             iter_idx += 1
     logger.info('optimization finished')
     return model
 
-
-def remove_module(model, val_loader, threshold):
-    with torch.no_grad():
-        models = model.models
-        filter_set = set()
-        for i, model in enumerate(models):
-            loss, idx = 0, 0
-            for batch in val_loader:
-                input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
-                label_mask_list, label_type_list = batch[6], batch[7]
-                predict_value_list = model(input_list, label_time_list)
-                output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list,
-                                                   label_type_list)
-                loss = output_dict['loss'] + loss
-                idx = idx + 1
-            if loss / idx > threshold:
-                if len(filter_set) < len(models) - 2:
-                    filter_set.add(i)
-    logger.info('{} models are filtered after warming and {} remains'.
-                format(len(filter_set), len(models)-len(filter_set)))
-    return filter_set
+#
+# def remove_module(model, val_loader, threshold):
+#     with torch.no_grad():
+#         models = model.models
+#         filter_set = set()
+#         for i, model in enumerate(models):
+#             loss, idx = 0, 0
+#             for batch in val_loader:
+#                 input_list, label_feature_list, label_time_list = batch[0], batch[4], batch[5]
+#                 label_mask_list, label_type_list = batch[6], batch[7]
+#                 predict_value_list = model(input_list, label_time_list)
+#                 output_dict = model.loss_calculate(predict_value_list, label_feature_list, label_mask_list,
+#                                                    label_type_list)
+#                 loss = output_dict['loss'] + loss
+#                 idx = idx + 1
+#             if loss / idx > threshold:
+#                 if len(filter_set) < len(models) - 2:
+#                     filter_set.add(i)
+#     logger.info('{} models are filtered after warming and {} remains'.
+#                 format(len(filter_set), len(models)-len(filter_set)))
+#     return filter_set
 
 
 def performance_evaluation(model, loader, loader_fraction, observation_time_list, epoch_idx=None, iter_idx=None):
@@ -116,7 +111,7 @@ def framework(argument):
     predict_label = True if argument['predict_label'] == 'True' else False
     random_observation_time = True if argument['treatment_random_observation_time'] else False
     mask_tag = argument['mask_tag']
-    use_hidden = True if argument['hidden_flag'] == 'True' else False
+    use_hidden = argument['hidden_flag']
     prior_causal_mask = argument['prior_causal_mask']
 
     # data loader setting

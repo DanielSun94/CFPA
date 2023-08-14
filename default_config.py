@@ -17,40 +17,29 @@ ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
 fig_save_folder = os.path.join(script_path, 'resource', 'figure')
 
-dataset = 'hao_true_lmci' # 'zheng
-hidden_flag = 'True' # False
-device = 'cuda:0'
+dataset = 'zheng' # 'zheng hao_true_lmci auto25 auto50
+hidden_flag = 'False' # False
+device = 'cuda:1'
 constraint_type = 'DAG'
 model = 'ODE'
 prior_causal_mask = 'not_causal' # hao_true_causal, not_causal use_data
 non_linear_mode = "True"
 treatment_optimize_method = 'difference' # difference min
-new_model_number = 4
-treatment_filter_threshold = 0.04
+new_model_number = 16
+treatment_filter_threshold = 0.3
 
-
-# hao_true_lmci
-# treatment_feature = 'n'
-# treatment_time = 52
-# treatment_observation_time = 57
-# treatment_value = 0
-
-# zheng
-# treatment_feature = 'n'
-# treatment_time = 0
-# treatment_observation_time = 10
-# treatment_value = 0
-
-# auto
-treatment_feature = 'node_15'
-treatment_time = 1
-treatment_observation_time = 3
-treatment_value = 1
 assert model in {'ODE'}
 
-# treatment_init_model_name = 'predict.CTP.hao_true_lmci.True.none.20230404121230308383.18.2900.model'
-# treatment_init_model_name = 'predict.CTP.zheng.False.DAG.20230406082853239080.8.100.model'
-treatment_init_model_name = 'predict.CTP.auto50.True.DAG.20230406104408175186.99.100.model'
+# ['predict.CTP.zheng.False.sparse.20230423080106170328.34.2800.model', 'zheng', False, 'True', 'use_data'],
+# ['predict.CTP.zheng.False.sparse.20230412123244373515.37.3000.model', 'zheng', False, "True", 'use_data'],
+# ['predict.CTP.zheng.False.none.20230412123244238576.37.3000.model', 'zheng', False, "True", 'use_data'],
+# ['predict.CTP.zheng.False.sparse.20230412123244356323.37.3000.model', 'zheng', False, "False", 'use_data']
+# ["predict.CTP.hao_true_lmci.True.DAG.20230410063658996264.37.3000.model", 'hao_true_lmci', True, "True", 'hao_true_causal'],  # DAG 0.86
+# ['predict.CTP.hao_true_lmci.True.sparse.20230410063659278979.37.3000.model', 'hao_true_lmci', True, "False", 'hao_true_causal'],  # Linear 0.72
+# ['predict.CTP.hao_true_lmci.True.none.20230410063659156026.37.3000.model', 'hao_true_lmci', True, "True", 'hao_true_causal'],  # none 0.54
+# ['predict.CTP.hao_true_lmci.True.sparse.20230410063659452740.37.3000.model', 'hao_true_lmci', True, "True", 'hao_true_causal'],  # sparse 0.76
+
+treatment_init_model_name = 'predict.CTP.zheng.False.DAG.20230426091900683552.17.1400.model'
 
 
 if not os.path.exists(data_folder):
@@ -108,20 +97,21 @@ default_config = {
     # graph setting
     "constraint_type": constraint_type,
     'sparse_constraint_weight': 0,
+    'sparse_warm': 0,
 
     # treatment
-    'treatment_feature': treatment_feature,
-    'treatment_time': treatment_time,
-    'treatment_observation_time': treatment_observation_time,
-    'treatment_value': treatment_value,
+    'treatment_feature': None,
+    'treatment_time': None,
+    'treatment_observation_time': None,
+    'treatment_value': None,
     'treatment_sample_multiplier': 1,
     'treatment_eval_iter_interval': 20,
-    "treatment_predict_lr" : 0.0001,
-    "treatment_treatment_lr" : 0.000003,
-    "treatment_max_epoch" : 200,
-    "treatment_max_iter" : 2000,
+    "treatment_predict_lr" : None,
+    "treatment_treatment_lr" : None,
+    "treatment_max_epoch" : 3000,
+    "treatment_max_iter" : 3000,
     'treatment_new_model_number': new_model_number,
-    'treatment_warm_iter': 200,
+    'treatment_warm_iter': 120,
     'treatment_filter_threshold': treatment_filter_threshold,
     'treatment_optimize_method': treatment_optimize_method,
     'treatment_random_observation_time': 'False',
@@ -193,6 +183,7 @@ parser.add_argument('--log_every_iteration', help='', default='False', type=str)
 
 # graph setting
 parser.add_argument('--constraint_type', help='', default=default_config['constraint_type'], type=str)
+parser.add_argument('--sparse_warm', help='', default=default_config['sparse_warm'], type=int)
 parser.add_argument('--sparse_constraint_weight', help='', default=default_config['sparse_constraint_weight'],
                     type=float)
 
@@ -250,6 +241,12 @@ if args["dataset_name"] == 'hao_true_lmci':
     args["max_lambda_predict"] = 0.5
     args["max_mu_predict"] = 2
     args["distribution_mode"] = distribution_mode
+    args["treatment_feature"] = 'n'
+    args["treatment_time"] = 52
+    args["treatment_observation_time"] = 57
+    args["treatment_value"] = 0
+    args["treatment_predict_lr"] = 0.0001
+    args["treatment_treatment_lr"] = 0.000015
 elif args["dataset_name"] == 'hao_false_lmci':
     distribution_mode = 'uniform'
     args["data_path"] = os.path.join(data_folder, 'sim_hao_model_hidden_False_personal_2_type_{}.pkl'
@@ -262,6 +259,12 @@ elif args["dataset_name"] == 'hao_false_lmci':
     args["max_lambda_predict"] = 0.5
     args["max_mu_predict"] = 2
     args["distribution_mode"] = distribution_mode
+    args["treatment_feature"] = 'n'
+    args["treatment_time"] = 52
+    args["treatment_observation_time"] = 57
+    args["treatment_value"] = 0
+    args["treatment_predict_lr"] = 0.0001
+    args["treatment_treatment_lr"] = 0.000015
 elif args["dataset_name"] == 'spiral_2d':
     distribution_mode = 'uniform'
     args["data_path"] = os.path.join(data_folder, 'spiral_2d.pkl')
@@ -273,6 +276,7 @@ elif args["dataset_name"] == 'spiral_2d':
     args["max_lambda_predict"] = 0.5
     args["max_mu_predict"] = 2
     args["distribution_mode"] = distribution_mode
+
 elif args["dataset_name"] == 'zheng':
     distribution_mode = 'uniform'
     args["data_path"] = os.path.join(data_folder, 'sim_zheng_model_hidden_True_personal_2_type_{}.pkl'
@@ -281,10 +285,20 @@ elif args["dataset_name"] == 'zheng':
     args["minimum_observation"] = 4
     args["input_size"] = 4
     args["hidden_size"] = 8
-    args["sparse_constraint_weight"] = 2
-    args["max_lambda_predict"] = 100
-    args["max_mu_predict"] = 200
+    args["sparse_constraint_weight"] = 0.1
+    args["max_lambda_predict"] = 5
+    args["init_mu_predict"] = 10**-3
+    args["max_mu_predict"] = 20
+    args['sparse_warm'] = 300
     args["distribution_mode"] = distribution_mode
+
+    args["treatment_feature"] = 'n'
+    args["treatment_time"] = 0
+    args["treatment_observation_time"] = 10
+    args["treatment_value"] = 0
+    args["treatment_predict_lr"] = 0.0001
+    args["treatment_treatment_lr"] = 0.000015
+
 elif args["dataset_name"] == 'auto25':
     distribution_mode = 'uniform'
     args["data_path"] = os.path.join(data_folder, 'sim_auto25_model_hidden_True_personal_2_type_{}.pkl'
@@ -293,10 +307,19 @@ elif args["dataset_name"] == 'auto25':
     args["minimum_observation"] = 4
     args["input_size"] = 20
     args["hidden_size"] = 16
-    args["sparse_constraint_weight"] = 2
-    args["max_lambda_predict"] = 100
-    args["max_mu_predict"] = 200
+    args["sparse_constraint_weight"] = 0.0015
+    args["max_lambda_predict"] = 0.5
+    args["max_mu_predict"] = 2
+    args["init_mu_predict"] = 10 ** -5.5
     args["distribution_mode"] = distribution_mode
+    args['sparse_warm'] = 300
+    args["treatment_feature"] = 'node_15'
+    args["treatment_time"] = 1
+    args["treatment_observation_time"] = 3
+    args["treatment_value"] = 1
+    args["treatment_predict_lr"] = 0.0001
+    args["treatment_treatment_lr"] = 0.00005
+
 elif args["dataset_name"] == 'auto50':
     distribution_mode = 'uniform'
     args["data_path"] = os.path.join(data_folder, 'sim_auto50_model_hidden_True_personal_2_type_{}.pkl'
@@ -305,10 +328,19 @@ elif args["dataset_name"] == 'auto50':
     args["minimum_observation"] = 4
     args["input_size"] = 45
     args["hidden_size"] = 32
-    args["sparse_constraint_weight"] = 2
-    args["max_lambda_predict"] = 100
-    args["max_mu_predict"] = 200
+    args["sparse_constraint_weight"] = 0.0003
+    args["max_lambda_predict"] = 0.5
+    args["max_mu_predict"] = 2
+    args["init_mu_predict"] = 10 ** -9.5
     args["distribution_mode"] = distribution_mode
+    args['sparse_warm'] = 400
+    args["treatment_feature"] = 'node_15'
+    args["treatment_time"] = 1
+    args["treatment_observation_time"] = 3
+    args["treatment_value"] = 1
+    args["treatment_predict_lr"] = 0.0001
+    args["treatment_treatment_lr"] = 0.00005
+
 elif args["dataset_name"] == 'adni':
     distribution_mode = 'random'
     args["data_path"] = os.path.join(data_folder, 'ADNI_merge_preprocessed.pkl')
@@ -316,12 +348,13 @@ elif args["dataset_name"] == 'adni':
     args["minimum_observation"] = 2
     args["log_every_iteration"] = 'True'
     args["input_size"] = 88
-    args["hidden_size"] = 32
+    args["hidden_size"] = 16
     args['batch_size'] = 32
-    args["sparse_constraint_weight"] = 2
-    args["max_lambda_predict"] = 100
-    args["max_mu_predict"] = 200
+    args["sparse_constraint_weight"] = 0.08
+    args["max_lambda_predict"] = 0.5
+    args["max_mu_predict"] = 2
     args["distribution_mode"] = distribution_mode
+    args['sparse_warm'] = 300
 else:
     raise ValueError('')
 
