@@ -27,10 +27,16 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
     predict_performance_evaluation(model, val_loader, 'valid', 0, 0)
     save_model(model, 'CTP', ckpt_folder, 0, 0, argument, 'predict')
     model.print_graph(0, adjacency_mat_folder)
+    best_loss = 10**9
     logger.info('--------------------start training--------------------')
     for epoch_idx in range(max_epoch):
+        if iter_idx > max_iteration:
+            continue
         for batch in train_dataloader:
             iter_idx += 1
+            if iter_idx > max_iteration:
+                break
+                
             if log_every_iter:
                 logger.info('current iter idx: {}'.format(iter_idx))
 
@@ -49,9 +55,6 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
                 constraint = FloatTensor([0]).to(device)
             else:
                 raise ValueError('')
-
-            if iter_idx > max_iteration:
-                break
 
             # 删除部分边确保稀疏性，前面几次不做clamp，确保不要一开始因为初始化的原因出什么毛病
             if iter_idx > 20 and clamp_edge_flag:
@@ -78,11 +81,12 @@ def train(train_dataloader, val_loader, model, multiplier_updater, optimizer, ar
 
             if iter_idx % eval_iter_interval == 0:
                 # predict_performance_evaluation(model, train_dataloader, 'train', epoch_idx, iter_idx)
-                predict_performance_evaluation(model, val_loader, 'valid', epoch_idx, iter_idx)
-                model.print_graph(iter_idx, adjacency_mat_folder)
-                if iter_idx % save_interval == 0:
-                    save_model(model, 'CTP', ckpt_folder, epoch_idx, iter_idx, argument, 'predict')
-                    # save_graph(model, 'CTP', adjacency_mat_folder, epoch_idx, iter_idx, argument)
+                mse = predict_performance_evaluation(model, val_loader, 'valid', epoch_idx, iter_idx)
+                if mse < best_loss:
+                    best_loss = mse
+                    model.print_graph(iter_idx, adjacency_mat_folder)
+                    if iter_idx % save_interval == 0:
+                        save_model(model, 'CTP', ckpt_folder, epoch_idx, iter_idx, argument, 'predict')
     return model
 
 
@@ -160,7 +164,7 @@ def framework(argument):
     validation_dataloader = dataloader_dict['valid']
     test_dataloader = dataloader_dict['test']
     prior_causal_mask_name = argument['prior_causal_mask']
-    use_hidden = True if argument['hidden_flag'] == "True" else False
+    use_hidden = argument['hidden_flag']
 
     prior_causal_mask = get_oracle_causal_graph(name_id_dict, use_hidden, prior_causal_mask_name, oracle_graph)
     model = get_model(argument, id_type_list)

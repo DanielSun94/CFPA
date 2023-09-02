@@ -26,10 +26,10 @@ def main():
     default_config_path = config_path_set[model_name]
     default_use_hidden = "True"
     default_sample_type = 'uniform'
-    default_train_sample_size = 128
-    default_valid_sample_size = 128
-    default_test_sample_size = 128
-    default_personalized_type = 2
+    default_train_sample_size = 4096
+    default_valid_sample_size = 1024
+    default_test_sample_size = 1024
+    default_personalized_type = 1
     parser = argparse.ArgumentParser(description='simulate data generating')
     parser.add_argument('--config_path', type=str, default=default_config_path)
     parser.add_argument('--use_hidden', type=str, default=default_use_hidden)
@@ -86,8 +86,8 @@ def main():
         model.generate_dataset(train_sample_size, valid_sample_size, test_sample_size, personalized_type, sample_type)
     oracle_graph = model.get_oracle_graph()
 
-    save_name = 'sim_{}_model_hidden_{}_personal_{}_type_{}.pkl'\
-        .format(model_name, use_hidden, personalized_type, sample_type)
+    save_name = 'sim_{}_model_hidden_{}_personal_{}_type_{}_{}.pkl'\
+        .format(model_name, use_hidden, personalized_type, sample_type, default_train_sample_size)
     pickle.dump(
         {
             'config': config,
@@ -366,8 +366,12 @@ class AutoModel(object):
         self.node_number = node_number
         self.save_graph_folder = save_graph_folder
         self.config = self.__load_config(config)
-        self.adjacent_mat = self.generate_directed_acyclic_graph()
-        self.save_oracle_graph()
+
+        if os.path.exists(os.path.join(self.save_graph_folder, 'auto_{}_graph.pkl'.format(self.node_number))):
+            self.adjacent_mat = pickle.load(open(os.path.join(self.save_graph_folder, 'auto_{}_graph.pkl'.format(self.node_number)), 'rb'))
+        else:
+            self.adjacent_mat = self.generate_directed_acyclic_graph()
+            self.save_oracle_graph()
 
     @staticmethod
     def __load_config(config):

@@ -145,8 +145,8 @@ def save_model(model, model_name, folder, epoch_idx, iter_idx, argument, phase):
         constraint_type = argument['constraint_type']
         hidden_flag = argument['hidden_flag']
         assert hidden_flag == 'True' or hidden_flag == 'False'
-        file_name = '{}.{}.{}.{}.{}.{}.{}.{}'. \
-            format(phase, model_name, dataset_name, hidden_flag, constraint_type, identifier, epoch_idx, iter_idx)
+        file_name = '{}.{}.{}.{}.{}.{}.best'. \
+            format(phase, model_name, dataset_name, hidden_flag, constraint_type, identifier)
     else:
         dataset_name = argument['dataset_name']
         hidden_flag = argument['hidden_flag']
@@ -277,6 +277,7 @@ def predict_performance_evaluation(model, loader, loader_fraction, epoch_idx=Non
                     'f_a: {:>4.4}, p_a: {:>4.4f}, r_a: {:>4.4f}, g_l: {:>8.8f}, '
                     's_l: {:>8.8f}'.format(loader_fraction, mse, pred_mse, recons_mse, auc,
                                            pred_auc, recons_auc, graph_constraint, sparse_constraint))
+    return mse
 
 
 class OracleHaoModel(object):

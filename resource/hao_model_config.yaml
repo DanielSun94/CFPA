@@ -9,9 +9,9 @@ sample_characteristic:
   distribution: "uniform"
   t_0: 50
   unit: "year"
-  gaussian_observation_noise_std_coefficient: 0
-  gaussian_derivative_noise_std_coefficient: 0
-  personalized_turbulence_coefficient_1: 0.2
+  gaussian_observation_noise_std_coefficient: 0.1
+  gaussian_derivative_noise_std_coefficient: 0.1
+  personalized_turbulence_coefficient_1: 0.1
   personalized_turbulence_coefficient_2: 0.1
 ad:
   base_initial_value:

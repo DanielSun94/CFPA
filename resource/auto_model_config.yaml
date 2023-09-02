@@ -5,9 +5,9 @@ sample_characteristic:
   uniform_visit: 15
   uniform_interval: 0.25
   distribution: "uniform"
-  gaussian_derivative_noise_std_coefficient: 0
-  gaussian_observation_noise_std_coefficient: 0
-  personalized_turbulence_coefficient: 0.2
+  gaussian_derivative_noise_std_coefficient: 0.1
+  gaussian_observation_noise_std_coefficient: 0.1
+  personalized_turbulence_coefficient: 0.1
   t_0: 0
   init_value: 1
   hidden_node: 'first_five'

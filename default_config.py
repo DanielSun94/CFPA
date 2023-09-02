@@ -17,15 +17,17 @@ ckpt_folder = os.path.join(script_path, 'resource', 'ckpt_folder')
 treatment_result_inference_folder = os.path.join(script_path, 'resource', 'treatment_result_inference')
 fig_save_folder = os.path.join(script_path, 'resource', 'figure')
 
-dataset = 'zheng' # 'zheng hao_true_lmci auto25 auto50
-hidden_flag = 'False' # False
+dataset = 'auto25' # 'zheng hao_true_lmci auto25 auto50
+hidden_flag = 'True' # False
 device = 'cuda:1'
 constraint_type = 'DAG'
 model = 'ODE'
+personal_type=2
 prior_causal_mask = 'not_causal' # hao_true_causal, not_causal use_data
 non_linear_mode = "True"
 treatment_optimize_method = 'difference' # difference min
 new_model_number = 16
+data_size=4096
 treatment_filter_threshold = 0.3
 
 assert model in {'ODE'}
@@ -73,6 +75,8 @@ default_config = {
     'time_offset': None,
     'distribution_mode': 'None',
     'hidden_flag': hidden_flag,
+    'data_size': data_size,
+    'personal_type': personal_type,
 
     # model config
     "hidden_size": 8,
@@ -147,6 +151,7 @@ parser.add_argument('--prior_causal_mask', help='', default=default_config['prio
 
 # dataset config
 parser.add_argument('--dataset_name', help='', default=default_config['dataset_name'], type=str)
+parser.add_argument('--personal_type', help='', default=default_config['personal_type'], type=str)
 parser.add_argument('--data_path', help='', default=default_config['data_path'], type=str)
 parser.add_argument('--batch_first', help='', default=default_config['batch_first'], type=str)
 parser.add_argument('--minimum_observation', help='', default=default_config['minimum_observation'], type=int)
@@ -155,6 +160,7 @@ parser.add_argument('--mask_tag', help='', default=default_config['mask_tag'], t
 parser.add_argument('--reconstruct_input', help='', default=default_config['reconstruct_input'], type=str)
 parser.add_argument('--predict_label', help='', default=default_config['predict_label'], type=str)
 parser.add_argument('--time_offset', help='', default=default_config['time_offset'], type=int)
+parser.add_argument('--data_size', help='', default=default_config['data_size'], type=int)
 parser.add_argument('--distribution_mode', help='', default=default_config['distribution_mode'], type=str)
 parser.add_argument('--hidden_flag', help='', default=default_config['hidden_flag'], type=str)
 
@@ -229,10 +235,12 @@ parser.add_argument('--treatment_true_causal', help='', default=default_config['
 
 
 args = vars(parser.parse_args())
+personal_type = args['personal_type']
+data_size = args['data_size']
 if args["dataset_name"] == 'hao_true_lmci':
     distribution_mode = 'uniform'
-    args["data_path"] = os.path.join(data_folder, 'sim_hao_model_hidden_True_personal_2_type_{}.pkl'
-                                     .format(distribution_mode))
+    args["data_path"] = os.path.join(data_folder, 'sim_hao_model_hidden_True_personal_{}_type_{}_{}.pkl'
+                                     .format(personal_type, distribution_mode, data_size))
     args["time_offset"] = 50
     args["minimum_observation"] = 4
     args["input_size"] = 4
@@ -246,11 +254,11 @@ if args["dataset_name"] == 'hao_true_lmci':
     args["treatment_observation_time"] = 57
     args["treatment_value"] = 0
     args["treatment_predict_lr"] = 0.0001
-    args["treatment_treatment_lr"] = 0.000015
+    args["treatment_treatment_lr"] = 0.0001
 elif args["dataset_name"] == 'hao_false_lmci':
     distribution_mode = 'uniform'
-    args["data_path"] = os.path.join(data_folder, 'sim_hao_model_hidden_False_personal_2_type_{}.pkl'
-                                     .format(distribution_mode))
+    args["data_path"] = os.path.join(data_folder, 'sim_hao_model_hidden_False_personal_{}_type_{}_{}.pkl'
+                                     .format(personal_type, distribution_mode, data_size))
     args["time_offset"] = 50
     args["minimum_observation"] = 4
     args["input_size"] = 5
@@ -264,7 +272,7 @@ elif args["dataset_name"] == 'hao_false_lmci':
     args["treatment_observation_time"] = 57
     args["treatment_value"] = 0
     args["treatment_predict_lr"] = 0.0001
-    args["treatment_treatment_lr"] = 0.000015
+    args["treatment_treatment_lr"] = 0.0001
 elif args["dataset_name"] == 'spiral_2d':
     distribution_mode = 'uniform'
     args["data_path"] = os.path.join(data_folder, 'spiral_2d.pkl')
@@ -279,8 +287,8 @@ elif args["dataset_name"] == 'spiral_2d':
 
 elif args["dataset_name"] == 'zheng':
     distribution_mode = 'uniform'
-    args["data_path"] = os.path.join(data_folder, 'sim_zheng_model_hidden_True_personal_2_type_{}.pkl'
-                                     .format(distribution_mode))
+    args["data_path"] = os.path.join(data_folder, 'sim_zheng_model_hidden_True_personal_{}_type_{}_{}.pkl'
+                                     .format(personal_type, distribution_mode, data_size))
     args["time_offset"] = -10
     args["minimum_observation"] = 4
     args["input_size"] = 4
@@ -297,12 +305,12 @@ elif args["dataset_name"] == 'zheng':
     args["treatment_observation_time"] = 10
     args["treatment_value"] = 0
     args["treatment_predict_lr"] = 0.0001
-    args["treatment_treatment_lr"] = 0.000015
+    args["treatment_treatment_lr"] = 0.0001
 
 elif args["dataset_name"] == 'auto25':
     distribution_mode = 'uniform'
-    args["data_path"] = os.path.join(data_folder, 'sim_auto25_model_hidden_True_personal_2_type_{}.pkl'
-                                     .format(distribution_mode))
+    args["data_path"] = os.path.join(data_folder, 'sim_auto25_model_hidden_True_personal_{}_type_{}_{}.pkl'
+                                     .format(personal_type, distribution_mode, data_size))
     args["time_offset"] = 0
     args["minimum_observation"] = 4
     args["input_size"] = 20
@@ -318,12 +326,12 @@ elif args["dataset_name"] == 'auto25':
     args["treatment_observation_time"] = 3
     args["treatment_value"] = 1
     args["treatment_predict_lr"] = 0.0001
-    args["treatment_treatment_lr"] = 0.00005
+    args["treatment_treatment_lr"] = 0.0001
 
 elif args["dataset_name"] == 'auto50':
     distribution_mode = 'uniform'
-    args["data_path"] = os.path.join(data_folder, 'sim_auto50_model_hidden_True_personal_2_type_{}.pkl'
-                                     .format(distribution_mode))
+    args["data_path"] = os.path.join(data_folder, 'sim_auto50_model_hidden_True_personal_{}_type_{}_{}.pkl'
+                                     .format(personal_type, distribution_mode, data_size))
     args["time_offset"] = 0
     args["minimum_observation"] = 4
     args["input_size"] = 45
@@ -339,7 +347,7 @@ elif args["dataset_name"] == 'auto50':
     args["treatment_observation_time"] = 3
     args["treatment_value"] = 1
     args["treatment_predict_lr"] = 0.0001
-    args["treatment_treatment_lr"] = 0.00005
+    args["treatment_treatment_lr"] = 0.0001
 
 elif args["dataset_name"] == 'adni':
     distribution_mode = 'random'

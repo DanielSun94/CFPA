@@ -35,9 +35,9 @@ def main():
     hao_feature_list = ['a', 'tau_p', 'n', 'c']
     zheng_feature_list = ['a', 'tau', 'n', 'c']
     hao_data, hao_model_list = \
-        read_data('hao_true_lmci,True,n,52,0,accept.csv', sample_id, hao_feature_list)
+        read_data('hao_true_lmci,True,n,52,0.csv', sample_id, hao_feature_list)
     zheng_data, zheng_model_list = \
-        read_data('zheng,False,n,0,0,accept.csv', sample_id, zheng_feature_list)
+        read_data('zheng,False,n,0,0.csv', sample_id, zheng_feature_list)
 
     hao_model_list = sorted(hao_model_list)
     zheng_model_list = sorted(zheng_model_list)

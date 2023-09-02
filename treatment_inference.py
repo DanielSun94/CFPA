@@ -29,42 +29,66 @@ def main(argument):
     # hao
     if dataset_name == 'hao_true_lmci':
         inference_model_name_dict = {
-            'LODE': ('treatment.TEP.hao_true_lmci.True.20230426050205000579.0.0.model', False),
-            'CTP': ('treatment.TEP.hao_true_lmci.True.20230426050204978059.0.0.model', False),
-            'NODE': ('treatment.TEP.hao_true_lmci.True.20230426050204991342.0.0.model', False),
-            'TE-CDE': ('treatment.TEP.hao_true_lmci.True.20230426063429908071.0.0.model', False),
-            'CF-ODE': ('treatment.TEP.hao_true_lmci.True.20230426050204991414.0.0.model', False),
-            'NGM': ('treatment.TEP.hao_true_lmci.True.20230426050204989739.0.0.model', False),
+            # 'LODE': ('treatment.TEP.hao_true_lmci.True.20230426050205000579.0.0.model', False),
+            # 'CTP': ('treatment.TEP.hao_true_lmci.True.20230426050204978059.0.0.model', False),
+            # 'NODE': ('treatment.TEP.hao_true_lmci.True.20230426050204991342.0.0.model', False),
+            # 'TE-CDE': ('treatment.TEP.hao_true_lmci.True.20230426063429908071.0.0.model', False),
+            # 'CF-ODE': ('treatment.TEP.hao_true_lmci.True.20230426050204991414.0.0.model', False),
+            # 'NGM': ('treatment.TEP.hao_true_lmci.True.20230426050204989739.0.0.model', False),
+            'CTP02': ('treatment.TEP.hao_true_lmci.True.20230508044453770108.25.3000.model', False, 2),
+            'CTP04': ('treatment.TEP.hao_true_lmci.True.20230508044453736069.25.3000.model', False, 4),
+            'CTP08': ('treatment.TEP.hao_true_lmci.True.20230508044454011545.25.3000.model', False, 8),
+            'CTP16': ('treatment.TEP.hao_true_lmci.True.20230508044453875411.25.3000.model', False, 16),
+            'CTP32': ('treatment.TEP.hao_true_lmci.True.20230508044454111814.23.2800.model', False, 32),
+            'CTP64': ('treatment.TEP.hao_true_lmci.True.20230508044454093056.11.1340.model', False, 64),
         }
         use_hidden = "True"
     elif dataset_name == 'zheng':
         inference_model_name_dict = {
-            'LODE': ('treatment.TEP.zheng.False.20230425045910181387.0.0.model', False),
-            'CTP': ('treatment.TEP.zheng.False.20230426095624827475.0.0.model', False),
-            'NODE': ('treatment.TEP.zheng.False.20230425045910207057.0.0.model', False),
-            'TE-CDE': ('treatment.TEP.zheng.False.20230426113604097993.0.0.model', False),
-            'CF-ODE': ('treatment.TEP.zheng.False.20230426113604591044.0.0.model', False),
-            'NGM': ('treatment.TEP.zheng.False.20230425045910261224.0.0.model', False),
+            # 'LODE': ('treatment.TEP.zheng.False.20230425045910181387.0.0.model', False),
+            # 'CTP': ('treatment.TEP.zheng.False.20230426095624827475.0.0.model', False),
+            # 'NODE': ('treatment.TEP.zheng.False.20230425045910207057.0.0.model', False),
+            # 'TE-CDE': ('treatment.TEP.zheng.False.20230426113604097993.0.0.model', False),
+            # 'CF-ODE': ('treatment.TEP.zheng.False.20230426113604591044.0.0.model', False),
+            # 'NGM': ('treatment.TEP.zheng.False.20230425045910261224.0.0.model', False),
+            'CTP02': ('treatment.TEP.zheng.False.20230508044454259063.37.3000.model', False, 2),
+            'CTP04': ('treatment.TEP.zheng.False.20230508044454389246.37.3000.model', False, 4),
+            'CTP08': ('treatment.TEP.zheng.False.20230508044454568896.37.3000.model', False, 8),
+            'CTP16': ('treatment.TEP.zheng.False.20230508044454583704.37.3000.model', False, 16),
+            'CTP32': ('treatment.TEP.zheng.False.20230508044454528166.37.3000.model', False, 32),
+            'CTP64': ('treatment.TEP.zheng.False.20230508044454820893.24.1920.model', False, 64),
         }
         use_hidden = "False"
     elif dataset_name == 'auto25':
         inference_model_name_dict = {
-            'LODE': ('treatment.TEP.auto25.False.20230425045910068283.19.1560.model', False),
-            'CTP': ('treatment.TEP.auto25.False.20230425045910033893.8.640.model', False),
-            'NODE': ('treatment.TEP.auto25.False.20230425045910040216.7.620.model', False),
-            'TE-CDE': ('treatment.TEP.auto25.False.20230425045910040216.0.0.model', False),
-            'CF-ODE': ('treatment.TEP.auto25.False.20230425045910040216.3.300.model', False),
-            'NGM': ('treatment.TEP.auto25.False.20230425045910055872.8.680.model', False),
+            # 'LODE': ('treatment.TEP.auto25.False.20230425045910068283.19.1560.model', False),
+            # 'CTP': ('treatment.TEP.auto25.False.20230425045910033893.8.640.model', False),
+            # 'NODE': ('treatment.TEP.auto25.False.20230425045910040216.7.620.model', False),
+            # 'TE-CDE': ('treatment.TEP.auto25.False.20230425045910040216.0.0.model', False),
+            # 'CF-ODE': ('treatment.TEP.auto25.False.20230425045910040216.3.300.model', False),
+            # 'NGM': ('treatment.TEP.auto25.False.20230425045910055872.8.680.model', False),
+            'CTP02': ('treatment.TEP.auto25.False.20230508044454571387.16.2000.model', False, 2),
+            'CTP04': ('treatment.TEP.auto25.False.20230508044454922726.16.2000.model', False, 4),
+            'CTP08': ('treatment.TEP.auto25.False.20230508044454911505.16.2000.model', False, 8),
+            'CTP16': ('treatment.TEP.auto25.False.20230508044455097134.16.2000.model', False, 16),
+            'CTP32': ('treatment.TEP.auto25.False.20230508044454956351.16.2000.model', False, 32),
+            'CTP64': ('treatment.TEP.auto25.False.20230508044455132028.7.900.model', False, 64),
         }
         use_hidden = "False"
     elif dataset_name == 'auto50':
         inference_model_name_dict = {
-            'LODE': ('treatment.TEP.auto50.False.20230425045910112885.11.900.model', False),
-            'CTP': ('treatment.TEP.auto50.False.20230425045910229400.3.280.model', False),
-            'NODE': ('treatment.TEP.auto50.False.20230425045910042825.3.240.model', False),
-            'TE-CDE': ('treatment.TEP.auto50.False.20230425045910042825.1.120.model', False),
-            'CF-ODE': ('treatment.TEP.auto50.False.20230425045910042825.0.0.model', False),
-            'NGM': ('treatment.TEP.auto50.False.20230425045910078953.3.280.model', False),
+            # 'LODE': ('treatment.TEP.auto50.False.20230425045910112885.11.900.model', False),
+            # 'CTP': ('treatment.TEP.auto50.False.20230425045910229400.3.280.model', False),
+            # 'NODE': ('treatment.TEP.auto50.False.20230425045910042825.3.240.model', False),
+            # 'TE-CDE': ('treatment.TEP.auto50.False.20230425045910042825.1.120.model', False),
+            # 'CF-ODE': ('treatment.TEP.auto50.False.20230425045910042825.0.0.model', False),
+            # 'NGM': ('treatment.TEP.auto50.False.20230425045910078953.3.280.model', False),
+            'CTP02': ('treatment.TEP.auto50.False.20230508044455151617.12.1000.model', False, 2),
+            'CTP04': ('treatment.TEP.auto50.False.20230508044455391233.12.1000.model', False, 4),
+            'CTP08': ('treatment.TEP.auto50.False.20230508044455362061.12.1000.model', False, 8),
+            'CTP16': ('treatment.TEP.auto50.False.20230508044455442166.12.1000.model', False, 16),
+            'CTP32': ('treatment.TEP.auto50.False.20230508044455393160.9.720.model', False, 32),
+            'CTP64': ('treatment.TEP.auto50.False.20230508044455762910.5.420.model', False, 64),
         }
         use_hidden = "False"
     else:
@@ -92,7 +116,7 @@ def main(argument):
 
     data_dict = dict()
     for model_name in inference_model_name_dict:
-        model_file, true_causal = inference_model_name_dict[model_name]
+        model_file, true_causal, new_model_number = inference_model_name_dict[model_name]
 
         if true_causal:
             oracle_graph = get_oracle_causal_graph(name_id_dict, use_hidden, 'use_data', oracle_graph)
@@ -100,8 +124,8 @@ def main(argument):
             oracle_graph = get_oracle_causal_graph(name_id_dict, use_hidden, 'not_causal', oracle_graph)
 
         model_treatment_dataset = generate_model_behavior(
-            use_hidden, test_dataset, dataset_name, t_feature, t_time, time_list, t_value, t_idx, model_name,
-            model_file, oracle_graph, id_type_list, name_id_dict, device, argument
+            use_hidden, test_dataset, dataset_name, t_feature, t_time, time_list, t_value, t_idx, new_model_number,
+            model_name, model_file, oracle_graph, id_type_list, name_id_dict, device, argument
         )
         # model_origin_dataset = generate_model_behavior(
         #     use_hidden, test_dataset, dataset_name, None, None, time_list, None, None, model_name,
@@ -189,13 +213,13 @@ def generate_oracle_behavior(hidden_flag, dataloader, dataset, stat_dict, treatm
 
 
 def generate_model_behavior(hidden_flag, dataloader, dataset_name, treatment_feature, treatment_time, time_list,
-                            treatment_value, treatment_idx, model_name, inference_model_file, oracle_graph,
-                            id_type_list, name_id_dict, device, argument):
+                            treatment_value, treatment_idx, new_model_number, model_name, inference_model_file,
+                            oracle_graph, id_type_list, name_id_dict, device, argument):
     if 'Linear' in model_name or 'linear' in model_name or 'LODE' in model_name:
         non_linear = 'False'
     else:
         non_linear = "True"
-    new_model_number = argument['treatment_new_model_number']
+    # new_model_number = argument['treatment_new_model_number']
     batch_size = dataloader.batch_size
     process_name = argument['process_name']
     optimize_method = argument['treatment_optimize_method']

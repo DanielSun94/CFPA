@@ -8,9 +8,9 @@ sample_characteristic:
   t_0: -10
   unit: "DPS"
   distribution: "uniform"
-  gaussian_observation_noise_std_coefficient: 0
-  gaussian_derivative_noise_std_coefficient: 0
-  personalized_turbulence_coefficient: 0.2
+  gaussian_observation_noise_std_coefficient: 0.1
+  gaussian_derivative_noise_std_coefficient: 0.1
+  personalized_turbulence_coefficient: 0.1
 lmci-ad:
   base_initial_value:
     a: 0.000141
