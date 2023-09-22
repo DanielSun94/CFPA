@@ -5,6 +5,7 @@ from default_config import treatment_result_inference_folder
 import numpy as np
 import os
 import csv
+import pandas as pd
 
 
 sns.set()
@@ -31,83 +32,74 @@ def read_data(data_name, sample_id, feature_list):
 
 
 def main():
-    sample_id = 'test_138'
+    sample_id = 'test_1'
     hao_feature_list = ['a', 'tau_p', 'n', 'c']
     zheng_feature_list = ['a', 'tau', 'n', 'c']
     hao_data, hao_model_list = \
-        read_data('hao_true_lmci,True,n,52,0.csv', sample_id, hao_feature_list)
-    zheng_data, zheng_model_list = \
-        read_data('zheng,False,n,0,0.csv', sample_id, zheng_feature_list)
+        read_data('hao_true_lmci,True,n,52,0,accept.csv', sample_id, hao_feature_list)
+    # zheng_data, zheng_model_list = \
+    #     read_data('zheng,False,n,0,0.csv', sample_id, zheng_feature_list)
 
     hao_model_list = sorted(hao_model_list)
-    zheng_model_list = sorted(zheng_model_list)
-    assert len(hao_model_list) == len(zheng_model_list)
-    for i in range(len(hao_model_list)):
-        assert hao_model_list[i] == zheng_model_list[i]
+    # zheng_model_list = sorted(zheng_model_list)
+    # assert len(hao_model_list) == len(zheng_model_list)
+    # for i in range(len(hao_model_list)):
+    #     assert hao_model_list[i] == zheng_model_list[i]
     model_name_list = hao_model_list
 
     # model_name_list = ['oracle_treatment', 'model_2_treatment']
     print('order of model names: {}'.format(model_name_list))
 
 
-    fig, axs = plt.subplots(2, 4, figsize=[7.5, 3.5], dpi=300)
+    fig, axs = plt.subplots(1, 4, figsize=[7.5, 2], dpi=300)
     hao_start_time = 50
     hao_treat_time = 52
     hao_end_time = 56
-    zheng_start_time = -10
-    zheng_treat_time = 0
-    zheng_end_time = 10
     hao_time_list = [0.05 * i * (hao_end_time - hao_start_time) + hao_start_time + 0.4 for i in range(20)]
-    zheng_time_list = [0.05 * i * (zheng_end_time - zheng_start_time) + zheng_start_time + 1 for i in range(20)]
     for i in range(4):
         hao_feature = hao_feature_list[i]
-        zheng_feature = zheng_feature_list[i]
         for j, model_name in enumerate(model_name_list):
-            zheng_value = zheng_data[model_name][zheng_feature]['mean']
             hao_value = hao_data[model_name][hao_feature]['mean']
+            if j == 0:
+                color_idx = 1
+            elif j == 1:
+                color_idx = 6
+            else:
+                raise ValueError('')
+            if 'oracle' not in model_name:
+                hao_max = hao_data[model_name][hao_feature]['max']
+                hao_min = hao_data[model_name][hao_feature]['min']
+                axs[i].fill_between(hao_time_list, hao_min, hao_max, color=color_pallete[color_idx], alpha=0.2)
 
-            axs[0][i].plot(hao_time_list, hao_value, label=model_name, color=color_pallete[j])
-            axs[1][i].plot(zheng_time_list, zheng_value, label=model_name, color=color_pallete[j])
+            axs[i].plot(hao_time_list, hao_value, label=model_name, color=color_pallete[color_idx])
 
-        axs[0][i].set_title('Hao ' + hao_feature)
-        axs[0][i].tick_params(axis='both', which='major', pad=0)
-        axs[0][i].set_xlim(hao_start_time, hao_end_time)
-        axs[0][i].set_xticks([hao_start_time, hao_treat_time, hao_end_time])
-        axs[0][i].grid(color='red', linestyle='--', linewidth=0.5)
-        axs[0][i].set_xlabel('time')
-        axs[0][i].set_xlabel('age')
+        axs[i].set_title('Hao ' + hao_feature)
+        axs[i].tick_params(axis='both', which='major', pad=0)
+        axs[i].set_xlim(hao_start_time, hao_end_time)
+        axs[i].set_xticks([hao_start_time, hao_treat_time, hao_end_time])
+        axs[i].grid(color='red', linestyle='--', linewidth=0.5)
+        axs[i].set_xlabel('time')
+        axs[i].set_xlabel('age')
+    #
 
-        axs[1][i].set_title('Zheng ' + zheng_feature)
-        axs[1][i].tick_params(axis='both', which='major', pad=0)
-        axs[1][i].set_xlim(zheng_start_time, zheng_end_time)
-        axs[1][i].set_xticks([zheng_start_time, zheng_treat_time, zheng_end_time])
-        axs[1][i].grid(color='red', linestyle='--', linewidth=0.5)
-        axs[1][i].set_xlabel('time')
-        axs[1][i].set_xlabel('DPS')
-
-    axs[0][0].set_ylabel('normalized value')
+    axs[0].set_ylabel('normalized value')
     # axs[0][0].legend(bbox_to_anchor=(4, 1.4), ncol=7)
-    axs[0][0].set_ylim(-3, 1)
-    axs[0][0].set_yticks([-3, 1])
-    axs[0][1].set_ylim(-2, 0)
-    axs[0][1].set_yticks([-2, 0])
-    axs[0][2].set_ylim(-5, 0)
-    axs[0][2].set_yticks([-5, 0])
-    axs[0][3].set_ylim(-3, 3)
-    axs[0][3].set_yticks([-3, 3])
-    axs[1][0].set_ylabel('normalized value')
-    axs[1][0].set_ylim(-2, 4)
-    axs[1][0].set_yticks([-2, 4])
-    axs[1][1].set_ylim(-2, 2)
-    axs[1][1].set_yticks([-2, 2])
-    axs[1][2].set_ylim(-2, 1)
-    axs[1][2].set_yticks([-2, 1])
-    axs[1][3].set_ylim(-3, 3)
-    axs[1][3].set_yticks([-3, 3])
+    axs[0].set_ylim(-3, 1)
+    axs[0].set_yticks([-3, 1])
+    axs[1].set_ylim(-2, 0)
+    axs[1].set_yticks([-2, 0])
+    axs[2].set_ylim(-5, 0)
+    axs[2].set_yticks([-5, 0])
+    axs[3].set_ylim(-3, 3)
+    axs[3].set_yticks([-3, 3])
+    axs[0].legend(loc='upper left', ncols=3)
+    axs[1].legend(loc='upper left', ncols=3)
+    axs[2].legend(loc='upper left', ncols=3)
+    axs[3].legend(loc='upper left', ncols=3)
 
-    handles, labels = axs[0][0].get_legend_handles_labels()
+    # handles, labels = axs[0].get_legend_handles_labels()
     fig.tight_layout()
-    plt.figlegend(handles, labels, loc="upper center", bbox_to_anchor=(0.55, 1.05), ncol=7, labelspacing=0.2)
+    # plt.figlegend(handles, labels, loc="upper center", bbox_to_anchor=(0.55, 1.05), ncol=7, labelspacing=0.2)
     plt.show()
     fig.savefig(os.path.join(fig_save_folder, 'treatment.{}.svg').format(sample_id), bbox_inches='tight')
 

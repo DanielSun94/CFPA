@@ -62,7 +62,7 @@ class TreatmentEffectEstimator(Module):
 
         initial_model_name = self.model_args['init_model_name']
         if initial_model_name is not None and initial_model_name != 'None':
-            init_model = torch.load(os.path.join(ckpt_folder, initial_model_name))
+            init_model = torch.load(os.path.join(ckpt_folder, initial_model_name), map_location=device)
             for i in range(new_model_number):
                 model_list[i].load_state_dict(init_model, strict=True)
         return model_list.to(device)
@@ -80,13 +80,17 @@ class TreatmentEffectEstimator(Module):
 
     def predict_loss(self, predict_value_list, label_feature_list, label_mask_list, label_type_list):
         models = self.models
-        loss = 0
+        loss, pred_loss, reconstruct_loss = 0, 0, 0
         assert len(models) == len(predict_value_list)
         for i, (model, predict_value) in enumerate(zip(models, predict_value_list)):
             output_dict = model.loss_calculate(predict_value, label_feature_list, label_mask_list, label_type_list)
             loss = output_dict['loss'] + loss
+            pred_loss = output_dict['predict_loss'] + pred_loss
+            reconstruct_loss = output_dict['reconstruct_loss'] + reconstruct_loss
         loss = loss / len(models)
-        return loss
+        reconstruct_loss = reconstruct_loss / len(models)
+        pred_loss = pred_loss / len(models)
+        return loss, pred_loss, reconstruct_loss
 
     def treatment_loss(self, predict_value_list):
         optimize_type = self.optimize_method
