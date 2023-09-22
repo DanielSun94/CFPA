@@ -68,8 +68,9 @@ def get_oracle_causal_graph(name_id_dict, use_hidden: str, custom_name, true_ora
             new_dict['hidden'] = len(new_dict)
     for cause in oracle_graph:
         for consequence in oracle_graph[cause]:
-            idx_1, idx_2 = new_dict[cause], new_dict[consequence]
-            bool_graph[idx_1, idx_2] = oracle_graph[cause][consequence]
+            if cause in new_dict and consequence in new_dict:
+                idx_1, idx_2 = new_dict[cause], new_dict[consequence]
+                bool_graph[idx_1, idx_2] = oracle_graph[cause][consequence]
     return bool_graph
 
 

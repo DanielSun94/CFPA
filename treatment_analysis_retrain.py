@@ -33,7 +33,7 @@ def train(train_loader, val_loader, model, optimizer_predict, optimizer_treatmen
             if flag:
                 model.set_mode('predict')
                 predict_list = model.predict(input_list, label_time_list)
-                loss = model.predict_loss(predict_list, label_feature_list, label_mask_list, label_type_list)
+                loss = model.predict_loss(predict_list, label_feature_list, label_mask_list, label_type_list)[0]
                 optimizer_predict.zero_grad()
                 loss.backward()
                 optimizer_predict.step()
@@ -86,21 +86,21 @@ def performance_evaluation(model, loader, loader_fraction, observation_time_list
             label_mask_list, label_type_list = batch[6], batch[7]
             model.set_mode('predict')
             predict_list = model.predict(input_list, label_time_list)
-            pred_loss = model.predict_loss(predict_list, label_feature_list, label_mask_list, label_type_list)
+            full_loss, pred_loss, reconstruct_loss = model.predict_loss(predict_list, label_feature_list, label_mask_list, label_type_list)
             model.set_mode('treatment')
             predict_list = model.predict(input_list, observation_time_list)
             treatment_loss = model.treatment_loss(predict_list)
-            pred_loss_list.append(pred_loss)
+            pred_loss_list.append(full_loss)
             treatment_loss_list.append(treatment_loss)
 
-        pred_loss = mean(FloatTensor(pred_loss_list)).item()
+        full_loss = mean(FloatTensor(pred_loss_list)).item()
         treatment_loss = mean(FloatTensor(treatment_loss_list)).item()
     if epoch_idx is not None:
-        logger.info('epoch: {:>4d}, iter: {:>4d}, {:>6s} predict loss: {:>8.8f}, treatment loss: {:>8.8f}'
-            .format(epoch_idx, iter_idx, loader_fraction, pred_loss, treatment_loss))
+        logger.info('epoch: {:>4d}, iter: {:>4d}, {:>6s} full loss: {:>8.8f}, pred loss: {:>8.8f}, recon loss: {:>8.8f}, treatment loss: {:>8.8f}'
+            .format(epoch_idx, iter_idx, loader_fraction, full_loss, pred_loss, reconstruct_loss, treatment_loss))
     else:
         logger.info('final {}, predict loss: {:>8.8f}, treatment loss: {:>8.8f}'
-                    .format(loader_fraction, pred_loss, treatment_loss))
+                    .format(loader_fraction, full_loss, treatment_loss))
 
 
 def framework(argument):

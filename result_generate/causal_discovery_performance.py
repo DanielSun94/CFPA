@@ -1,76 +1,63 @@
 import os
 import numpy as np
 import torch
-from default_config import ckpt_folder, args
+from default_config import ckpt_folder, args, update_argument_info
 from predict_model_train import get_model as get_ctp_model, get_oracle_causal_graph
 from predict_model_train import get_data
+import csv
 
-# Linear ODE
-# 'predict.CTP.hao_true_lmci.True.sparse.20230402160017666256.18.3000.model',
-# 'predict.CTP.hao_true_lmci.True.sparse.20230402160017675829.18.3000.model'
-# NODE
-# "predict.CTP.hao_true_lmci.True.none.20230402160017638219.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.none.20230402160017622164.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.none.20230402160017593823.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.none.20230402160017632388.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.none.20230402160017551015.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.none.20230402160017549878.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.none.20230402160017516543.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.none.20230402160017555945.18.3000.model"
-# NODE Sparse (NGM)
-# "predict.CTP.hao_true_lmci.True.sparse.20230402160017628116.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.sparse.20230402160017566475.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.sparse.20230402160017665773.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.sparse.20230402160017561905.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.sparse.20230402160017676152.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.sparse.20230402160017635273.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.sparse.20230402160017673871.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.sparse.20230402160017576411.18.3000.model"
-#
-# CTP
-# "predict.CTP.hao_true_lmci.True.DAG.20230402160017432987.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.DAG.20230402160017285169.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.DAG.20230402160017293297.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.DAG.20230402160017319134.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.DAG.20230402160017400674.18.3000.model",
-# "predict.CTP.hao_true_lmci.True.DAG.20230402160017286170.18.3000.model",
-#
 
-def main(argument):
+def main(argument, candidate_path=None):
     threshold = 0.3
     model_type = 'CTP'
     device = argument['device']
-    model_name_list = [
-        # ['predict.CTP.auto25.False.sparse.20230423122932725636.37.3000.model', 'auto25', False, 'True', 'use_data'],
-        # ['predict.CTP.auto25.False.DAG.20230423133012062462.37.3000.model', 'auto25', False, 'True', 'use_data'],
-        # ['predict.CTP.auto25.False.sparse.20230423122932750697.37.3000.model', 'auto25', False, 'False', 'use_data'],
-        # ['predict.CTP.auto25.False.none.20230412123244647565.37.3000.model', 'auto25', False, 'True', 'use_data'],
-        # ['predict.CTP.auto50.False.none.20230412123244389694.37.3000.model', 'auto50', False, 'True', 'use_data'],
-        # ['predict.CTP.auto50.False.sparse.20230423122932534001.37.3000.model', 'auto50', False, 'False', 'use_data'],
-        # ['predict.CTP.auto50.False.DAG.20230423133005637113.37.3000.model', 'auto50', False, 'True', 'use_data'],
-        # ['predict.CTP.auto50.False.sparse.20230423122932549363.37.3000.model', 'auto50', False, 'True', 'use_data'],
-        # ['predict.CTP.zheng.False.sparse.20230423080106170328.34.2800.model', 'zheng', False, 'True', 'use_data'],
-        # ['predict.CTP.zheng.False.sparse.20230412123244373515.37.3000.model', 'zheng', False, "True", 'use_data'],
-        # ['predict.CTP.zheng.False.none.20230412123244238576.37.3000.model', 'zheng', False, "True", 'use_data'],
-        # ['predict.CTP.zheng.False.sparse.20230412123244356323.37.3000.model', 'zheng', False, "False", 'use_data']
-        # ["predict.CTP.hao_true_lmci.True.DAG.20230410063658996264.37.3000.model", 'hao_true_lmci', True, "True", 'hao_true_causal'],  # DAG 0.86
-        # ['predict.CTP.hao_true_lmci.True.sparse.20230410063659278979.37.3000.model', 'hao_true_lmci', True, "False", 'hao_true_causal'],  # Linear 0.72
-        # ['predict.CTP.hao_true_lmci.True.none.20230410063659156026.37.3000.model', 'hao_true_lmci', True, "True", 'hao_true_causal'],  # none 0.54
-        # ['predict.CTP.hao_true_lmci.True.sparse.20230410063659452740.37.3000.model', 'hao_true_lmci', True, "True", 'hao_true_causal'],  # sparse 0.76
-    ]
+
+    if candidate_path is None:
+        model_name_list = [
+            ['CTP', 'predict.CTP.zheng.False.sparse.20230518093021261096.best.model', 'zheng', False, 'True',
+             'use_data'],
+        ]
+    else:
+        with open(candidate_path, 'r', encoding='utf-8-sig', newline='') as f:
+            model_name_list = []
+            csv_reader = csv.reader(f)
+            for line in csv_reader:
+                name, path = line[0], line[1]
+                if 'hao' in name.lower():
+                    hidden_flag = True
+                else:
+                    hidden_flag = False
+
+                if 'LODE' in name:
+                    non_linear = 'False'
+                else:
+                    non_linear = "True"
+                experiment_name = name.lower()
+                if 'mm25' in experiment_name:
+                    dataset = "auto25"
+                elif 'mm50' in experiment_name:
+                    dataset = 'auto50'
+                elif 'hao' in experiment_name:
+                    dataset = 'hao_true_lmci'
+                else:
+                    assert 'zheng' in experiment_name
+                    dataset = 'zheng'
+
+                model_name_list.append([name, path, dataset, hidden_flag, non_linear, 'use_data'])
 
     for model_info in model_name_list:
-        item, dataset, hidden_flag, non_linear, custom_name = model_info
+        model_name, item, dataset, hidden_flag, non_linear, custom_name = model_info
         mat_list = []
         if model_type == 'CTP':
             argument['dataset_name'] = dataset
             argument['non_linear_mode'] = non_linear
             argument['hidden_flag'] = "True" if hidden_flag else "False"
+            argument = update_argument_info(argument)
             dataloader_dict, name_id_dict, oracle, id_type_list = get_data(argument)
             label = get_oracle_causal_graph(name_id_dict, hidden_flag, custom_name, oracle)
 
             model_path = os.path.join(ckpt_folder, item)
-            state_dict = torch.load(model_path)
+            state_dict = torch.load(model_path, map_location='cuda:0')
             model = get_ctp_model(argument, id_type_list)
             model.load_state_dict(state_dict)
             model.to(device)
@@ -81,10 +68,10 @@ def main(argument):
         else:
             raise ValueError('')
         tpl, tnl, fpl, fnl, acc_l, f1l, c_index_l = calculate_performance(mat_list, threshold)
-        for name, metric in zip(['acc', 'f1', 'c_index'], [acc_l, f1l, c_index_l]):
+        for name, metric in zip(['c_index'], [acc_l, f1l, c_index_l]):
             mean = np.mean(metric)
             std = np.std(metric)
-            print('{}, {}, {}, {}, {}'.format(model_type, dataset, name, mean, std))
+            print('{}, {}, {}, {}, {}'.format(model_name, dataset, name, mean, std))
 
 
 def calculate_performance(mat_list, threshold):
@@ -131,6 +118,7 @@ def calculate_performance(mat_list, threshold):
 
 
 if __name__ == '__main__':
-    main(args)
+    path = os.path.abspath('../candidate.csv')
+    main(args, path)
 
 

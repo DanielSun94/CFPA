@@ -34,13 +34,14 @@ def main(argument):
             # 'NODE': ('treatment.TEP.hao_true_lmci.True.20230426050204991342.0.0.model', False),
             # 'TE-CDE': ('treatment.TEP.hao_true_lmci.True.20230426063429908071.0.0.model', False),
             # 'CF-ODE': ('treatment.TEP.hao_true_lmci.True.20230426050204991414.0.0.model', False),
-            # 'NGM': ('treatment.TEP.hao_true_lmci.True.20230426050204989739.0.0.model', False),
-            'CTP02': ('treatment.TEP.hao_true_lmci.True.20230508044453770108.25.3000.model', False, 2),
-            'CTP04': ('treatment.TEP.hao_true_lmci.True.20230508044453736069.25.3000.model', False, 4),
-            'CTP08': ('treatment.TEP.hao_true_lmci.True.20230508044454011545.25.3000.model', False, 8),
-            'CTP16': ('treatment.TEP.hao_true_lmci.True.20230508044453875411.25.3000.model', False, 16),
-            'CTP32': ('treatment.TEP.hao_true_lmci.True.20230508044454111814.23.2800.model', False, 32),
-            'CTP64': ('treatment.TEP.hao_true_lmci.True.20230508044454093056.11.1340.model', False, 64),
+            # # 'NGM': ('treatment.TEP.hao_true_lmci.True.20230426050204989739.0.0.model', False),
+            # 'CTP02': ('treatment.TEP.hao_true_lmci.True.20230508044453770108.25.3000.model', False, 2),
+            # 'CTP04': ('treatment.TEP.hao_true_lmci.True.20230508044453736069.25.3000.model', False, 4),
+            'CTP081': ('treatment.TEP.hao_true_lmci.True.20230920161102476025.42.1350.model', False, 8),
+            # 'CTP082': ('treatment.TEP.hao_true_lmci.True.20230920160219722836.14.450.model', False, 8),
+            # 'CTP16': ('treatment.TEP.hao_true_lmci.True.20230508044453875411.25.3000.model', False, 16),
+            # 'CTP32': ('treatment.TEP.hao_true_lmci.True.20230508044454111814.23.2800.model', False, 32),
+            # 'CTP64': ('treatment.TEP.hao_true_lmci.True.20230508044454093056.11.1340.model', False, 64),
         }
         use_hidden = "True"
     elif dataset_name == 'zheng':
@@ -51,12 +52,13 @@ def main(argument):
             # 'TE-CDE': ('treatment.TEP.zheng.False.20230426113604097993.0.0.model', False),
             # 'CF-ODE': ('treatment.TEP.zheng.False.20230426113604591044.0.0.model', False),
             # 'NGM': ('treatment.TEP.zheng.False.20230425045910261224.0.0.model', False),
-            'CTP02': ('treatment.TEP.zheng.False.20230508044454259063.37.3000.model', False, 2),
-            'CTP04': ('treatment.TEP.zheng.False.20230508044454389246.37.3000.model', False, 4),
-            'CTP08': ('treatment.TEP.zheng.False.20230508044454568896.37.3000.model', False, 8),
-            'CTP16': ('treatment.TEP.zheng.False.20230508044454583704.37.3000.model', False, 16),
-            'CTP32': ('treatment.TEP.zheng.False.20230508044454528166.37.3000.model', False, 32),
-            'CTP64': ('treatment.TEP.zheng.False.20230508044454820893.24.1920.model', False, 64),
+            # 'CTP02': ('treatment.TEP.zheng.False.20230508044454259063.37.3000.model', False, 2),
+            # 'CTP04': ('treatment.TEP.zheng.False.20230508044454389246.37.3000.model', False, 4),
+            'CTP081': ('treatment.TEP.hao_true_lmci.True.20230920160219722836.56.1800.model', False, 8),
+            # 'CTP082': ('treatment.TEP.zheng.False.20230907171927474548.93.3000.model', False, 8),
+            # 'CTP16': ('treatment.TEP.zheng.False.20230508044454583704.37.3000.model', False, 16),
+            # 'CTP32': ('treatment.TEP.zheng.False.20230508044454528166.37.3000.model', False, 32),
+            # 'CTP64': ('treatment.TEP.zheng.False.20230508044454820893.24.1920.model', False, 64),
         }
         use_hidden = "False"
     elif dataset_name == 'auto25':
@@ -67,12 +69,12 @@ def main(argument):
             # 'TE-CDE': ('treatment.TEP.auto25.False.20230425045910040216.0.0.model', False),
             # 'CF-ODE': ('treatment.TEP.auto25.False.20230425045910040216.3.300.model', False),
             # 'NGM': ('treatment.TEP.auto25.False.20230425045910055872.8.680.model', False),
-            'CTP02': ('treatment.TEP.auto25.False.20230508044454571387.16.2000.model', False, 2),
-            'CTP04': ('treatment.TEP.auto25.False.20230508044454922726.16.2000.model', False, 4),
-            'CTP08': ('treatment.TEP.auto25.False.20230508044454911505.16.2000.model', False, 8),
-            'CTP16': ('treatment.TEP.auto25.False.20230508044455097134.16.2000.model', False, 16),
-            'CTP32': ('treatment.TEP.auto25.False.20230508044454956351.16.2000.model', False, 32),
-            'CTP64': ('treatment.TEP.auto25.False.20230508044455132028.7.900.model', False, 64),
+            # 'CTP02': ('treatment.TEP.auto25.False.20230508044454571387.16.2000.model', False, 2),
+            # 'CTP04': ('treatment.TEP.auto25.False.20230508044454922726.16.2000.model', False, 4),
+            'CTP08': ('treatment.TEP.zheng.False.20230907171927474548.93.3000.model', False, 8),
+            # 'CTP16': ('treatment.TEP.auto25.False.20230508044455097134.16.2000.model', False, 16),
+            # 'CTP32': ('treatment.TEP.auto25.False.20230508044454956351.16.2000.model', False, 32),
+            # 'CTP64': ('treatment.TEP.auto25.False.20230508044455132028.7.900.model', False, 64),
         }
         use_hidden = "False"
     elif dataset_name == 'auto50':
